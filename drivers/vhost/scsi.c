@@ -462,7 +462,7 @@ vhost_scsi_do_evt_work(struct vhost_scsi *vs, struct vhost_scsi_evt *evt)
 {
 	struct vhost_virtqueue *vq = &vs->vqs[VHOST_SCSI_VQ_EVT].vq;
 	struct virtio_scsi_event *event = &evt->event;
-	struct virtio_scsi_event __user *eventp;
+	struct iov_iter iov_iter;
 	unsigned out, in;
 	int head, ret;
 
@@ -499,9 +499,10 @@ again:
 		vs->vs_events_missed = false;
 	}
 
-	eventp = vq->iov[out].iov_base;
-	ret = __copy_to_user(eventp, event, sizeof(*event));
-	if (!ret)
+	iov_iter_init(&iov_iter, READ, &vq->iov[out], in, sizeof(*event));
+
+	ret = copy_to_iter(event, sizeof(*event), &iov_iter);
+	if (ret == sizeof(*event))
 		vhost_add_used_and_signal(&vs->dev, vq, head, 0);
 	else
 		vq_err(vq, "Faulted on vhost_scsi_send_event\n");
@@ -802,17 +803,18 @@ static void vhost_scsi_target_queue_cmd(struct vhost_scsi_cmd *cmd)
 static void
 vhost_scsi_send_bad_target(struct vhost_scsi *vs,
 			   struct vhost_virtqueue *vq,
-			   int head, unsigned out)
+			   int head, unsigned out, unsigned in)
 {
-	struct virtio_scsi_cmd_resp __user *resp;
 	struct virtio_scsi_cmd_resp rsp;
+	struct iov_iter iov_iter;
 	int ret;
+
+	iov_iter_init(&iov_iter, READ, &vq->iov[out], in, sizeof(rsp));
 
 	memset(&rsp, 0, sizeof(rsp));
 	rsp.response = VIRTIO_SCSI_S_BAD_TARGET;
-	resp = vq->iov[out].iov_base;
-	ret = __copy_to_user(resp, &rsp, sizeof(rsp));
-	if (!ret)
+	ret = copy_to_iter(&rsp, sizeof(rsp), &iov_iter);
+	if (ret == sizeof(rsp))
 		vhost_add_used_and_signal(&vs->dev, vq, head, 0);
 	else
 		pr_err("Faulted on virtio_scsi_cmd_resp\n");
@@ -1124,7 +1126,7 @@ err:
 		if (ret == -ENXIO)
 			break;
 		else if (ret == -EIO)
-			vhost_scsi_send_bad_target(vs, vq, vc.head, vc.out);
+			vhost_scsi_send_bad_target(vs, vq, vc.head, vc.out, vc.in);
 	} while (likely(!vhost_exceeds_weight(vq, ++c, 0)));
 out:
 	mutex_unlock(&vq->mutex);
@@ -1347,7 +1349,7 @@ err:
 		if (ret == -ENXIO)
 			break;
 		else if (ret == -EIO)
-			vhost_scsi_send_bad_target(vs, vq, vc.head, vc.out);
+			vhost_scsi_send_bad_target(vs, vq, vc.head, vc.out, vc.in);
 	} while (likely(!vhost_exceeds_weight(vq, ++c, 0)));
 out:
 	mutex_unlock(&vq->mutex);
