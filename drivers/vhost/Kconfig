@@ -20,6 +20,12 @@ config VHOST
 	  This option is selected by any driver which needs to access
 	  the core of vhost.
 
+config VHOST_KERNEL
+	tristate
+	help
+	  This option is selected by any driver which needs to access the
+	  support for kernel buffers in vhost.
+
 menuconfig VHOST_MENU
 	bool "VHOST drivers"
 	default y

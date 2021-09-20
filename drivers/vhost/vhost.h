@@ -67,6 +67,7 @@ struct vhost_vring_call {
 
 struct vhost_iov {
 	union {
+		struct kvec kvec;
 		struct iovec iovec;
 	};
 };
@@ -83,6 +84,11 @@ struct vhost_virtqueue {
 		vring_avail_t __user *avail;
 		vring_used_t __user *used;
 	} user;
+	struct {
+		vring_desc_t *desc;
+		vring_avail_t *avail;
+		vring_used_t *used;
+	} kern;
 	const struct vhost_iotlb_map *meta_iotlb[VHOST_NUM_ADDRS];
 	struct file *kick;
 	struct vhost_vring_call call_ctx;
@@ -169,18 +175,41 @@ struct vhost_dev {
 	int byte_weight;
 	u64 kcov_handle;
 	bool use_worker;
+	bool kernel;
 	int (*msg_handler)(struct vhost_dev *dev,
 			   struct vhost_iotlb_msg *msg);
 };
 
+static inline bool vhost_kernel(const struct vhost_virtqueue *vq)
+{
+	if (!IS_ENABLED(CONFIG_VHOST_KERNEL))
+		return false;
+
+	return vq->dev->kernel;
+}
+
 static inline size_t vhost_iov_length(const struct vhost_virtqueue *vq, struct vhost_iov *iov,
 				      unsigned long nr_segs)
 {
+	if (vhost_kernel(vq)) {
+		size_t ret = 0;
+		const struct kvec *kvec = &iov->kvec;
+		unsigned int seg;
+
+		for (seg = 0; seg < nr_segs; seg++)
+			ret += kvec[seg].iov_len;
+
+		return ret;
+	};
+
 	return iov_length(&iov->iovec, nr_segs);
 }
 
 static inline size_t vhost_iov_len(const struct vhost_virtqueue *vq, struct vhost_iov *iov)
 {
+	if (vhost_kernel(vq))
+		return iov->kvec.iov_len;
+
 	return iov->iovec.iov_len;
 }
 
@@ -190,6 +219,11 @@ static inline void vhost_iov_iter_init(const struct vhost_virtqueue *vq,
 				       unsigned long nr_segs,
 				       size_t count)
 {
+	if (vhost_kernel(vq)) {
+		iov_iter_kvec(i, direction, &iov->kvec, nr_segs, count);
+		return;
+	}
+
 	iov_iter_init(i, direction, &iov->iovec, nr_segs, count);
 }
 
