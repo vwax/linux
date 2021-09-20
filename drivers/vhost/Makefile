@@ -15,5 +15,8 @@ vhost_vdpa-y := vdpa.o
 
 obj-$(CONFIG_VHOST)	+= vhost.o
 
+obj-$(CONFIG_VHOST)	+= vhost_common.o
+vhost_common-y := common.o
+
 obj-$(CONFIG_VHOST_IOTLB) += vhost_iotlb.o
 vhost_iotlb-y := iotlb.o

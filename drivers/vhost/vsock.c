@@ -662,7 +662,7 @@ static void vhost_vsock_free(struct vhost_vsock *vsock)
 	kvfree(vsock);
 }
 
-static int vhost_vsock_dev_open(struct inode *inode, struct file *file)
+static struct vhost_dev *vhost_vsock_dev_open(struct vhost *vhost)
 {
 	struct vhost_virtqueue **vqs;
 	struct vhost_vsock *vsock;
@@ -673,7 +673,7 @@ static int vhost_vsock_dev_open(struct inode *inode, struct file *file)
 	 */
 	vsock = kvmalloc(sizeof(*vsock), GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 	if (!vsock)
-		return -ENOMEM;
+		return ERR_PTR(-ENOMEM);
 
 	vqs = kmalloc_array(ARRAY_SIZE(vsock->vqs), sizeof(*vqs), GFP_KERNEL);
 	if (!vqs) {
@@ -694,15 +694,14 @@ static int vhost_vsock_dev_open(struct inode *inode, struct file *file)
 		       UIO_MAXIOV, VHOST_VSOCK_PKT_WEIGHT,
 		       VHOST_VSOCK_WEIGHT, true, NULL);
 
-	file->private_data = vsock;
 	spin_lock_init(&vsock->send_pkt_list_lock);
 	INIT_LIST_HEAD(&vsock->send_pkt_list);
 	vhost_work_init(&vsock->send_pkt_work, vhost_transport_send_pkt_work);
-	return 0;
+	return &vsock->dev;
 
 out:
 	vhost_vsock_free(vsock);
-	return ret;
+	return ERR_PTR(ret);
 }
 
 static void vhost_vsock_flush(struct vhost_vsock *vsock)
@@ -741,9 +740,9 @@ static void vhost_vsock_reset_orphans(struct sock *sk)
 	sk_error_report(sk);
 }
 
-static int vhost_vsock_dev_release(struct inode *inode, struct file *file)
+static void vhost_vsock_dev_release(struct vhost_dev *dev)
 {
-	struct vhost_vsock *vsock = file->private_data;
+	struct vhost_vsock *vsock = container_of(dev, struct vhost_vsock, dev);
 
 	mutex_lock(&vhost_vsock_mutex);
 	if (vsock->guest_cid)
@@ -775,7 +774,6 @@ static int vhost_vsock_dev_release(struct inode *inode, struct file *file)
 	vhost_dev_cleanup(&vsock->dev);
 	kfree(vsock->dev.vqs);
 	vhost_vsock_free(vsock);
-	return 0;
 }
 
 static int vhost_vsock_set_cid(struct vhost_vsock *vsock, u64 guest_cid)
@@ -851,10 +849,10 @@ err:
 	return -EFAULT;
 }
 
-static long vhost_vsock_dev_ioctl(struct file *f, unsigned int ioctl,
+static long vhost_vsock_dev_ioctl(struct vhost_dev *dev, unsigned int ioctl,
 				  unsigned long arg)
 {
-	struct vhost_vsock *vsock = f->private_data;
+	struct vhost_vsock *vsock = container_of(dev, struct vhost_vsock, dev);
 	void __user *argp = (void __user *)arg;
 	u64 guest_cid;
 	u64 features;
@@ -906,51 +904,15 @@ static long vhost_vsock_dev_ioctl(struct file *f, unsigned int ioctl,
 	}
 }
 
-static ssize_t vhost_vsock_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
-{
-	struct file *file = iocb->ki_filp;
-	struct vhost_vsock *vsock = file->private_data;
-	struct vhost_dev *dev = &vsock->dev;
-	int noblock = file->f_flags & O_NONBLOCK;
-
-	return vhost_chr_read_iter(dev, to, noblock);
-}
-
-static ssize_t vhost_vsock_chr_write_iter(struct kiocb *iocb,
-					struct iov_iter *from)
-{
-	struct file *file = iocb->ki_filp;
-	struct vhost_vsock *vsock = file->private_data;
-	struct vhost_dev *dev = &vsock->dev;
-
-	return vhost_chr_write_iter(dev, from);
-}
-
-static __poll_t vhost_vsock_chr_poll(struct file *file, poll_table *wait)
-{
-	struct vhost_vsock *vsock = file->private_data;
-	struct vhost_dev *dev = &vsock->dev;
-
-	return vhost_chr_poll(file, dev, wait);
-}
-
-static const struct file_operations vhost_vsock_fops = {
-	.owner          = THIS_MODULE,
+static const struct vhost_ops vhost_vsock_ops = {
+	.minor		= VHOST_VSOCK_MINOR,
+	.name		= "vhost-vsock",
 	.open           = vhost_vsock_dev_open,
 	.release        = vhost_vsock_dev_release,
-	.llseek		= noop_llseek,
-	.unlocked_ioctl = vhost_vsock_dev_ioctl,
-	.compat_ioctl   = compat_ptr_ioctl,
-	.read_iter      = vhost_vsock_chr_read_iter,
-	.write_iter     = vhost_vsock_chr_write_iter,
-	.poll           = vhost_vsock_chr_poll,
+	.ioctl		= vhost_vsock_dev_ioctl,
 };
 
-static struct miscdevice vhost_vsock_misc = {
-	.minor = VHOST_VSOCK_MINOR,
-	.name = "vhost-vsock",
-	.fops = &vhost_vsock_fops,
-};
+static struct vhost *vhost_vsock;
 
 static int __init vhost_vsock_init(void)
 {
@@ -960,12 +922,19 @@ static int __init vhost_vsock_init(void)
 				  VSOCK_TRANSPORT_F_H2G);
 	if (ret < 0)
 		return ret;
-	return misc_register(&vhost_vsock_misc);
+
+	vhost_vsock = vhost_register(&vhost_vsock_ops);
+	if (IS_ERR(vhost_vsock)) {
+		vsock_core_unregister(&vhost_transport.transport);
+		return PTR_ERR(vhost_vsock);
+	}
+
+	return 0;
 };
 
 static void __exit vhost_vsock_exit(void)
 {
-	misc_deregister(&vhost_vsock_misc);
+	vhost_unregister(vhost_vsock);
 	vsock_core_unregister(&vhost_transport.transport);
 };
 

@@ -15,6 +15,19 @@
 #include <linux/vhost_iotlb.h>
 #include <linux/irqbypass.h>
 
+struct vhost;
+
+struct vhost_ops {
+	int minor;
+	const char *name;
+	struct vhost_dev * (*open)(struct vhost *vhost);
+	long (*ioctl)(struct vhost_dev *dev, unsigned int ioctl, unsigned long arg);
+	void (*release)(struct vhost_dev *dev);
+};
+
+struct vhost *vhost_register(const struct vhost_ops *ops);
+void vhost_unregister(struct vhost *vhost);
+
 struct vhost_work;
 typedef void (*vhost_work_fn_t)(struct vhost_work *work);
 
@@ -160,6 +173,8 @@ struct vhost_dev {
 	struct mm_struct *mm;
 	struct mutex mutex;
 	struct vhost_virtqueue **vqs;
+	struct vhost *vhost;
+	struct file *file;
 	int nvqs;
 	struct eventfd_ctx *log_ctx;
 	struct llist_head work_list;

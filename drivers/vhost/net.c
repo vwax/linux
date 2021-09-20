@@ -1281,7 +1281,7 @@ static void handle_rx_net(struct vhost_work *work)
 	handle_rx(net);
 }
 
-static int vhost_net_open(struct inode *inode, struct file *f)
+static struct vhost_dev *vhost_net_open(struct vhost *vhost)
 {
 	struct vhost_net *n;
 	struct vhost_dev *dev;
@@ -1292,11 +1292,11 @@ static int vhost_net_open(struct inode *inode, struct file *f)
 
 	n = kvmalloc(sizeof *n, GFP_KERNEL | __GFP_RETRY_MAYFAIL);
 	if (!n)
-		return -ENOMEM;
+		return ERR_PTR(-ENOMEM);
 	vqs = kmalloc_array(VHOST_NET_VQ_MAX, sizeof(*vqs), GFP_KERNEL);
 	if (!vqs) {
 		kvfree(n);
-		return -ENOMEM;
+		return ERR_PTR(-ENOMEM);
 	}
 
 	queue = kmalloc_array(VHOST_NET_BATCH, sizeof(void *),
@@ -1304,7 +1304,7 @@ static int vhost_net_open(struct inode *inode, struct file *f)
 	if (!queue) {
 		kfree(vqs);
 		kvfree(n);
-		return -ENOMEM;
+		return ERR_PTR(-ENOMEM);
 	}
 	n->vqs[VHOST_NET_VQ_RX].rxq.queue = queue;
 
@@ -1313,7 +1313,7 @@ static int vhost_net_open(struct inode *inode, struct file *f)
 		kfree(vqs);
 		kvfree(n);
 		kfree(queue);
-		return -ENOMEM;
+		return ERR_PTR(-ENOMEM);
 	}
 	n->vqs[VHOST_NET_VQ_TX].xdp = xdp;
 
@@ -1341,11 +1341,10 @@ static int vhost_net_open(struct inode *inode, struct file *f)
 	vhost_poll_init(n->poll + VHOST_NET_VQ_TX, handle_tx_net, EPOLLOUT, dev);
 	vhost_poll_init(n->poll + VHOST_NET_VQ_RX, handle_rx_net, EPOLLIN, dev);
 
-	f->private_data = n;
 	n->page_frag.page = NULL;
 	n->refcnt_bias = 0;
 
-	return 0;
+	return dev;
 }
 
 static struct socket *vhost_net_stop_vq(struct vhost_net *n,
@@ -1395,9 +1394,9 @@ static void vhost_net_flush(struct vhost_net *n)
 	}
 }
 
-static int vhost_net_release(struct inode *inode, struct file *f)
+static void vhost_net_release(struct vhost_dev *dev)
 {
-	struct vhost_net *n = f->private_data;
+	struct vhost_net *n = container_of(dev, struct vhost_net, dev);
 	struct socket *tx_sock;
 	struct socket *rx_sock;
 
@@ -1421,7 +1420,6 @@ static int vhost_net_release(struct inode *inode, struct file *f)
 	if (n->page_frag.page)
 		__page_frag_cache_drain(n->page_frag.page, n->refcnt_bias);
 	kvfree(n);
-	return 0;
 }
 
 static struct socket *get_raw_socket(int fd)
@@ -1687,10 +1685,10 @@ out:
 	return r;
 }
 
-static long vhost_net_ioctl(struct file *f, unsigned int ioctl,
+static long vhost_net_ioctl(struct vhost_dev *dev, unsigned int ioctl,
 			    unsigned long arg)
 {
-	struct vhost_net *n = f->private_data;
+	struct vhost_net *n = container_of(dev, struct vhost_net, dev);
 	void __user *argp = (void __user *)arg;
 	u64 __user *featurep = argp;
 	struct vhost_vring_file backend;
@@ -1741,63 +1739,32 @@ static long vhost_net_ioctl(struct file *f, unsigned int ioctl,
 	}
 }
 
-static ssize_t vhost_net_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
-{
-	struct file *file = iocb->ki_filp;
-	struct vhost_net *n = file->private_data;
-	struct vhost_dev *dev = &n->dev;
-	int noblock = file->f_flags & O_NONBLOCK;
-
-	return vhost_chr_read_iter(dev, to, noblock);
-}
-
-static ssize_t vhost_net_chr_write_iter(struct kiocb *iocb,
-					struct iov_iter *from)
-{
-	struct file *file = iocb->ki_filp;
-	struct vhost_net *n = file->private_data;
-	struct vhost_dev *dev = &n->dev;
-
-	return vhost_chr_write_iter(dev, from);
-}
-
-static __poll_t vhost_net_chr_poll(struct file *file, poll_table *wait)
-{
-	struct vhost_net *n = file->private_data;
-	struct vhost_dev *dev = &n->dev;
-
-	return vhost_chr_poll(file, dev, wait);
-}
-
-static const struct file_operations vhost_net_fops = {
-	.owner          = THIS_MODULE,
-	.release        = vhost_net_release,
-	.read_iter      = vhost_net_chr_read_iter,
-	.write_iter     = vhost_net_chr_write_iter,
-	.poll           = vhost_net_chr_poll,
-	.unlocked_ioctl = vhost_net_ioctl,
-	.compat_ioctl   = compat_ptr_ioctl,
+static const struct vhost_ops vhost_net_ops = {
+	.minor		= VHOST_NET_MINOR,
+	.name		= "vhost-net",
 	.open           = vhost_net_open,
-	.llseek		= noop_llseek,
+	.release        = vhost_net_release,
+	.ioctl		= vhost_net_ioctl,
 };
 
-static struct miscdevice vhost_net_misc = {
-	.minor = VHOST_NET_MINOR,
-	.name = "vhost-net",
-	.fops = &vhost_net_fops,
-};
+static struct vhost *vhost_net;
 
 static int vhost_net_init(void)
 {
 	if (experimental_zcopytx)
 		vhost_net_enable_zcopy(VHOST_NET_VQ_TX);
-	return misc_register(&vhost_net_misc);
+
+	vhost_net = vhost_register(&vhost_net_ops);
+	if (IS_ERR(vhost_net))
+		return PTR_ERR(vhost_net);
+
+	return 0;
 }
 module_init(vhost_net_init);
 
 static void vhost_net_exit(void)
 {
-	misc_deregister(&vhost_net_misc);
+	vhost_unregister(vhost_net);
 }
 module_exit(vhost_net_exit);
 
