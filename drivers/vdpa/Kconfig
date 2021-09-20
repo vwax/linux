@@ -43,6 +43,14 @@ config VDPA_USER
 	  With VDUSE it is possible to emulate a vDPA Device
 	  in a userspace program.
 
+config VHOST_KERNEL_TEST
+	tristate "vhost kernel test driver"
+	depends on EVENTFD
+	select VHOST
+	select VHOST_KERNEL
+	help
+	  Test driver for the vhost kernel-space buffer support.
+
 config IFCVF
 	tristate "Intel IFC VF vDPA driver"
 	depends on PCI_MSI
