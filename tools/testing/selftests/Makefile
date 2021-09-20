@@ -73,6 +73,7 @@ TARGETS += tmpfs
 TARGETS += tpm2
 TARGETS += user
 TARGETS += vDSO
+TARGETS += vhost_kernel
 TARGETS += vm
 TARGETS += x86
 TARGETS += zram
