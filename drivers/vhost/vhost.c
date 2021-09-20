@@ -46,8 +46,8 @@ enum {
 	VHOST_MEMORY_F_LOG = 0x1,
 };
 
-#define vhost_used_event(vq) ((__virtio16 __user *)&vq->avail->ring[vq->num])
-#define vhost_avail_event(vq) ((__virtio16 __user *)&vq->used->ring[vq->num])
+#define vhost_used_event(vq) ((__virtio16 __user *)&vq->user.avail->ring[vq->num])
+#define vhost_avail_event(vq) ((__virtio16 __user *)&vq->user.used->ring[vq->num])
 
 #ifdef CONFIG_VHOST_CROSS_ENDIAN_LEGACY
 static void vhost_disable_cross_endian(struct vhost_virtqueue *vq)
@@ -306,7 +306,7 @@ static void vhost_vring_call_reset(struct vhost_vring_call *call_ctx)
 
 bool vhost_vq_is_setup(struct vhost_virtqueue *vq)
 {
-	return vq->avail && vq->desc && vq->used && vhost_vq_access_ok(vq);
+	return vq->user.avail && vq->user.desc && vq->user.used && vhost_vq_access_ok(vq);
 }
 EXPORT_SYMBOL_GPL(vhost_vq_is_setup);
 
@@ -314,9 +314,9 @@ static void vhost_vq_reset(struct vhost_dev *dev,
 			   struct vhost_virtqueue *vq)
 {
 	vq->num = 1;
-	vq->desc = NULL;
-	vq->avail = NULL;
-	vq->used = NULL;
+	vq->user.desc = NULL;
+	vq->user.avail = NULL;
+	vq->user.used = NULL;
 	vq->last_avail_idx = 0;
 	vq->avail_idx = 0;
 	vq->last_used_idx = 0;
@@ -444,8 +444,8 @@ static size_t vhost_get_avail_size(struct vhost_virtqueue *vq,
 	size_t event __maybe_unused =
 	       vhost_has_feature(vq, VIRTIO_RING_F_EVENT_IDX) ? 2 : 0;
 
-	return sizeof(*vq->avail) +
-	       sizeof(*vq->avail->ring) * num + event;
+	return sizeof(*vq->user.avail) +
+	       sizeof(*vq->user.avail->ring) * num + event;
 }
 
 static size_t vhost_get_used_size(struct vhost_virtqueue *vq,
@@ -454,14 +454,14 @@ static size_t vhost_get_used_size(struct vhost_virtqueue *vq,
 	size_t event __maybe_unused =
 	       vhost_has_feature(vq, VIRTIO_RING_F_EVENT_IDX) ? 2 : 0;
 
-	return sizeof(*vq->used) +
-	       sizeof(*vq->used->ring) * num + event;
+	return sizeof(*vq->user.used) +
+	       sizeof(*vq->user.used->ring) * num + event;
 }
 
 static size_t vhost_get_desc_size(struct vhost_virtqueue *vq,
 				  unsigned int num)
 {
-	return sizeof(*vq->desc) * num;
+	return sizeof(*vq->user.desc) * num;
 }
 
 void vhost_dev_init(struct vhost_dev *dev,
@@ -959,7 +959,7 @@ static inline int vhost_put_used(struct vhost_virtqueue *vq,
 				 struct vring_used_elem *head, int idx,
 				 int count)
 {
-	return vhost_copy_to_user(vq, vq->used->ring + idx, head,
+	return vhost_copy_to_user(vq, vq->user.used->ring + idx, head,
 				  count * sizeof(*head));
 }
 
@@ -967,14 +967,14 @@ static inline int vhost_put_used_flags(struct vhost_virtqueue *vq)
 
 {
 	return vhost_put_user(vq, cpu_to_vhost16(vq, vq->used_flags),
-			      &vq->used->flags);
+			      &vq->user.used->flags);
 }
 
 static inline int vhost_put_used_idx(struct vhost_virtqueue *vq)
 
 {
 	return vhost_put_user(vq, cpu_to_vhost16(vq, vq->last_used_idx),
-			      &vq->used->idx);
+			      &vq->user.used->idx);
 }
 
 #define vhost_get_user(vq, x, ptr, type)		\
@@ -1018,20 +1018,20 @@ static void vhost_dev_unlock_vqs(struct vhost_dev *d)
 static inline int vhost_get_avail_idx(struct vhost_virtqueue *vq,
 				      __virtio16 *idx)
 {
-	return vhost_get_avail(vq, *idx, &vq->avail->idx);
+	return vhost_get_avail(vq, *idx, &vq->user.avail->idx);
 }
 
 static inline int vhost_get_avail_head(struct vhost_virtqueue *vq,
 				       __virtio16 *head, int idx)
 {
 	return vhost_get_avail(vq, *head,
-			       &vq->avail->ring[idx & (vq->num - 1)]);
+			       &vq->user.avail->ring[idx & (vq->num - 1)]);
 }
 
 static inline int vhost_get_avail_flags(struct vhost_virtqueue *vq,
 					__virtio16 *flags)
 {
-	return vhost_get_avail(vq, *flags, &vq->avail->flags);
+	return vhost_get_avail(vq, *flags, &vq->user.avail->flags);
 }
 
 static inline int vhost_get_used_event(struct vhost_virtqueue *vq,
@@ -1043,13 +1043,13 @@ static inline int vhost_get_used_event(struct vhost_virtqueue *vq,
 static inline int vhost_get_used_idx(struct vhost_virtqueue *vq,
 				     __virtio16 *idx)
 {
-	return vhost_get_used(vq, *idx, &vq->used->idx);
+	return vhost_get_used(vq, *idx, &vq->user.used->idx);
 }
 
 static inline int vhost_get_desc(struct vhost_virtqueue *vq,
 				 struct vring_desc *desc, int idx)
 {
-	return vhost_copy_from_user(vq, desc, vq->desc + idx, sizeof(*desc));
+	return vhost_copy_from_user(vq, desc, vq->user.desc + idx, sizeof(*desc));
 }
 
 static void vhost_iotlb_notify_vq(struct vhost_dev *d,
@@ -1363,12 +1363,12 @@ int vq_meta_prefetch(struct vhost_virtqueue *vq)
 	if (!vq->iotlb)
 		return 1;
 
-	return iotlb_access_ok(vq, VHOST_MAP_RO, (u64)(uintptr_t)vq->desc,
+	return iotlb_access_ok(vq, VHOST_MAP_RO, (u64)(uintptr_t)vq->user.desc,
 			       vhost_get_desc_size(vq, num), VHOST_ADDR_DESC) &&
-	       iotlb_access_ok(vq, VHOST_MAP_RO, (u64)(uintptr_t)vq->avail,
+	       iotlb_access_ok(vq, VHOST_MAP_RO, (u64)(uintptr_t)vq->user.avail,
 			       vhost_get_avail_size(vq, num),
 			       VHOST_ADDR_AVAIL) &&
-	       iotlb_access_ok(vq, VHOST_MAP_WO, (u64)(uintptr_t)vq->used,
+	       iotlb_access_ok(vq, VHOST_MAP_WO, (u64)(uintptr_t)vq->user.used,
 			       vhost_get_used_size(vq, num), VHOST_ADDR_USED);
 }
 EXPORT_SYMBOL_GPL(vq_meta_prefetch);
@@ -1412,7 +1412,7 @@ bool vhost_vq_access_ok(struct vhost_virtqueue *vq)
 	if (!vq_log_access_ok(vq, vq->log_base))
 		return false;
 
-	return vq_access_ok(vq, vq->num, vq->desc, vq->avail, vq->used);
+	return vq_access_ok(vq, vq->num, vq->user.desc, vq->user.avail, vq->user.used);
 }
 EXPORT_SYMBOL_GPL(vhost_vq_access_ok);
 
@@ -1523,8 +1523,8 @@ static long vhost_vring_set_addr(struct vhost_dev *d,
 		return -EFAULT;
 
 	/* Make sure it's safe to cast pointers to vring types. */
-	BUILD_BUG_ON(__alignof__ *vq->avail > VRING_AVAIL_ALIGN_SIZE);
-	BUILD_BUG_ON(__alignof__ *vq->used > VRING_USED_ALIGN_SIZE);
+	BUILD_BUG_ON(__alignof__ *vq->user.avail > VRING_AVAIL_ALIGN_SIZE);
+	BUILD_BUG_ON(__alignof__ *vq->user.used > VRING_USED_ALIGN_SIZE);
 	if ((a.avail_user_addr & (VRING_AVAIL_ALIGN_SIZE - 1)) ||
 	    (a.used_user_addr & (VRING_USED_ALIGN_SIZE - 1)) ||
 	    (a.log_guest_addr & (VRING_USED_ALIGN_SIZE - 1)))
@@ -1548,10 +1548,10 @@ static long vhost_vring_set_addr(struct vhost_dev *d,
 	}
 
 	vq->log_used = !!(a.flags & (0x1 << VHOST_VRING_F_LOG));
-	vq->desc = (void __user *)(unsigned long)a.desc_user_addr;
-	vq->avail = (void __user *)(unsigned long)a.avail_user_addr;
+	vq->user.desc = (void __user *)(unsigned long)a.desc_user_addr;
+	vq->user.avail = (void __user *)(unsigned long)a.avail_user_addr;
 	vq->log_addr = a.log_guest_addr;
-	vq->used = (void __user *)(unsigned long)a.used_user_addr;
+	vq->user.used = (void __user *)(unsigned long)a.used_user_addr;
 
 	return 0;
 }
@@ -1912,8 +1912,8 @@ static int log_used(struct vhost_virtqueue *vq, u64 used_offset, u64 len)
 	if (!vq->iotlb)
 		return log_write(vq->log_base, vq->log_addr + used_offset, len);
 
-	ret = translate_desc(vq, (uintptr_t)vq->used + used_offset,
-			     len, iov, 64, VHOST_ACCESS_WO);
+	ret = translate_desc(vq, (uintptr_t)vq->user.used + used_offset,
+			     len, vq->log_iov, 64, VHOST_ACCESS_WO);
 	if (ret < 0)
 		return ret;
 
@@ -1972,9 +1972,9 @@ static int vhost_update_used_flags(struct vhost_virtqueue *vq)
 		/* Make sure the flag is seen before log. */
 		smp_wmb();
 		/* Log used flag write. */
-		used = &vq->used->flags;
-		log_used(vq, (used - (void __user *)vq->used),
-			 sizeof vq->used->flags);
+		used = &vq->user.used->flags;
+		log_used(vq, (used - (void __user *)vq->user.used),
+			 sizeof vq->user.used->flags);
 		if (vq->log_ctx)
 			eventfd_signal(vq->log_ctx, 1);
 	}
@@ -1991,7 +1991,7 @@ static int vhost_update_avail_event(struct vhost_virtqueue *vq, u16 avail_event)
 		smp_wmb();
 		/* Log avail event write */
 		used = vhost_avail_event(vq);
-		log_used(vq, (used - (void __user *)vq->used),
+		log_used(vq, (used - (void __user *)vq->user.used),
 			 sizeof *vhost_avail_event(vq));
 		if (vq->log_ctx)
 			eventfd_signal(vq->log_ctx, 1);
@@ -2015,14 +2015,14 @@ int vhost_vq_init_access(struct vhost_virtqueue *vq)
 		goto err;
 	vq->signalled_used_valid = false;
 	if (!vq->iotlb &&
-	    !access_ok(&vq->used->idx, sizeof vq->used->idx)) {
+	    !access_ok(&vq->user.used->idx, sizeof vq->user.used->idx)) {
 		r = -EFAULT;
 		goto err;
 	}
 	r = vhost_get_used_idx(vq, &last_used_idx);
 	if (r) {
 		vq_err(vq, "Can't access used idx at %p\n",
-		       &vq->used->idx);
+		       &vq->user.used->idx);
 		goto err;
 	}
 	vq->last_used_idx = vhost16_to_cpu(vq, last_used_idx);
@@ -2214,7 +2214,7 @@ int vhost_get_vq_desc(struct vhost_virtqueue *vq,
 	if (vq->avail_idx == vq->last_avail_idx) {
 		if (unlikely(vhost_get_avail_idx(vq, &avail_idx))) {
 			vq_err(vq, "Failed to access avail idx at %p\n",
-				&vq->avail->idx);
+				&vq->user.avail->idx);
 			return -EFAULT;
 		}
 		vq->avail_idx = vhost16_to_cpu(vq, avail_idx);
@@ -2242,7 +2242,7 @@ int vhost_get_vq_desc(struct vhost_virtqueue *vq,
 	if (unlikely(vhost_get_avail_head(vq, &ring_head, last_avail_idx))) {
 		vq_err(vq, "Failed to read head: idx %d address %p\n",
 		       last_avail_idx,
-		       &vq->avail->ring[last_avail_idx % vq->num]);
+		       &vq->user.avail->ring[last_avail_idx % vq->num]);
 		return -EFAULT;
 	}
 
@@ -2277,7 +2277,7 @@ int vhost_get_vq_desc(struct vhost_virtqueue *vq,
 		ret = vhost_get_desc(vq, &desc, i);
 		if (unlikely(ret)) {
 			vq_err(vq, "Failed to get descriptor: idx %d addr %p\n",
-			       i, vq->desc + i);
+			       i, vq->user.desc + i);
 			return -EFAULT;
 		}
 		if (desc.flags & cpu_to_vhost16(vq, VRING_DESC_F_INDIRECT)) {
@@ -2366,7 +2366,7 @@ static int __vhost_add_used_n(struct vhost_virtqueue *vq,
 	int start;
 
 	start = vq->last_used_idx & (vq->num - 1);
-	used = vq->used->ring + start;
+	used = vq->user.used->ring + start;
 	if (vhost_put_used(vq, heads, start, count)) {
 		vq_err(vq, "Failed to write used");
 		return -EFAULT;
@@ -2375,7 +2375,7 @@ static int __vhost_add_used_n(struct vhost_virtqueue *vq,
 		/* Make sure data is seen before log. */
 		smp_wmb();
 		/* Log used ring entry write. */
-		log_used(vq, ((void __user *)used - (void __user *)vq->used),
+		log_used(vq, ((void __user *)used - (void __user *)vq->user.used),
 			 count * sizeof *used);
 	}
 	old = vq->last_used_idx;
@@ -2418,7 +2418,7 @@ int vhost_add_used_n(struct vhost_virtqueue *vq, struct vring_used_elem *heads,
 		smp_wmb();
 		/* Log used index update. */
 		log_used(vq, offsetof(struct vring_used, idx),
-			 sizeof vq->used->idx);
+			 sizeof vq->user.used->idx);
 		if (vq->log_ctx)
 			eventfd_signal(vq->log_ctx, 1);
 	}
@@ -2523,7 +2523,7 @@ bool vhost_enable_notify(struct vhost_dev *dev, struct vhost_virtqueue *vq)
 		r = vhost_update_used_flags(vq);
 		if (r) {
 			vq_err(vq, "Failed to enable notification at %p: %d\n",
-			       &vq->used->flags, r);
+			       &vq->user.used->flags, r);
 			return false;
 		}
 	} else {
@@ -2540,7 +2540,7 @@ bool vhost_enable_notify(struct vhost_dev *dev, struct vhost_virtqueue *vq)
 	r = vhost_get_avail_idx(vq, &avail_idx);
 	if (r) {
 		vq_err(vq, "Failed to check avail idx at %p: %d\n",
-		       &vq->avail->idx, r);
+		       &vq->user.avail->idx, r);
 		return false;
 	}
 
@@ -2560,7 +2560,7 @@ void vhost_disable_notify(struct vhost_dev *dev, struct vhost_virtqueue *vq)
 		r = vhost_update_used_flags(vq);
 		if (r)
 			vq_err(vq, "Failed to disable notification at %p: %d\n",
-			       &vq->used->flags, r);
+			       &vq->user.used->flags, r);
 	}
 }
 EXPORT_SYMBOL_GPL(vhost_disable_notify);

@@ -400,9 +400,9 @@ static long vhost_vdpa_vring_ioctl(struct vhost_vdpa *v, unsigned int cmd,
 	switch (cmd) {
 	case VHOST_SET_VRING_ADDR:
 		if (ops->set_vq_address(vdpa, idx,
-					(u64)(uintptr_t)vq->desc,
-					(u64)(uintptr_t)vq->avail,
-					(u64)(uintptr_t)vq->used))
+					(u64)(uintptr_t)vq->user.desc,
+					(u64)(uintptr_t)vq->user.avail,
+					(u64)(uintptr_t)vq->user.used))
 			r = -EINVAL;
 		break;
 
