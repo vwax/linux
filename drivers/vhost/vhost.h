@@ -23,6 +23,8 @@ struct vhost_ops {
 	struct vhost_dev * (*open)(struct vhost *vhost);
 	long (*ioctl)(struct vhost_dev *dev, unsigned int ioctl, unsigned long arg);
 	void (*release)(struct vhost_dev *dev);
+	void (*start_vq)(struct vhost_dev *dev, u16 idx);
+	void (*stop_vq)(struct vhost_dev *dev, u16 idx);
 };
 
 struct vhost *vhost_register(const struct vhost_ops *ops);
@@ -191,6 +193,7 @@ struct vhost_dev {
 	u64 kcov_handle;
 	bool use_worker;
 	bool kernel;
+	bool kernel_attached;
 	int (*msg_handler)(struct vhost_dev *dev,
 			   struct vhost_iotlb_msg *msg);
 };

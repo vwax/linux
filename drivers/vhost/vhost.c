@@ -486,6 +486,7 @@ void vhost_dev_init(struct vhost_dev *dev,
 	dev->mm = NULL;
 	dev->worker = NULL;
 	dev->kernel = false;
+	dev->kernel_attached = false;
 	dev->iov_limit = iov_limit;
 	dev->weight = weight;
 	dev->byte_weight = byte_weight;
@@ -1329,6 +1330,30 @@ static int vhost_process_iotlb_msg(struct vhost_dev *dev,
 
 	return ret;
 }
+
+int vhost_dev_iotlb_update(struct vhost_dev *dev, u64 iova, u64 size, u64 kaddr, unsigned int perm)
+{
+	int ret = 0;
+
+	mutex_lock(&dev->mutex);
+	vhost_dev_lock_vqs(dev);
+
+	if (!dev->iotlb) {
+		ret = -EINVAL;
+		goto out_unlock;
+	}
+
+	if (vhost_iotlb_add_range(dev->iotlb, iova, iova + size - 1, kaddr, perm))
+		ret = -ENOMEM;
+
+out_unlock:
+	vhost_dev_unlock_vqs(dev);
+	mutex_unlock(&dev->mutex);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(vhost_dev_iotlb_update);
+
 ssize_t vhost_chr_write_iter(struct vhost_dev *dev,
 			     struct iov_iter *from)
 {
@@ -1677,25 +1702,33 @@ err:
 	return -EFAULT;
 }
 
+static int __vhost_vring_set_num(struct vhost_dev *d,
+				struct vhost_virtqueue *vq,
+				unsigned int num)
+{
+	/* Resizing ring with an active backend?
+	 * You don't want to do that. */
+	if (vq->private_data)
+		return -EBUSY;
+
+	if (!num || num > 0xffff || (num & (num - 1)))
+		return -EINVAL;
+
+	vq->num = num;
+
+	return 0;
+}
+
 static long vhost_vring_set_num(struct vhost_dev *d,
 				struct vhost_virtqueue *vq,
 				void __user *argp)
 {
 	struct vhost_vring_state s;
 
-	/* Resizing ring with an active backend?
-	 * You don't want to do that. */
-	if (vq->private_data)
-		return -EBUSY;
-
-	if (copy_from_user(&s, argp, sizeof s))
+	if (copy_from_user(&s, argp, sizeof(s)))
 		return -EFAULT;
 
-	if (!s.num || s.num > 0xffff || (s.num & (s.num - 1)))
-		return -EINVAL;
-	vq->num = s.num;
-
-	return 0;
+	return __vhost_vring_set_num(d, vq, s.num);
 }
 
 static long vhost_vring_set_addr(struct vhost_dev *d,
@@ -1749,6 +1782,47 @@ static long vhost_vring_set_addr(struct vhost_dev *d,
 
 	return 0;
 }
+
+int vhost_dev_set_vring_num(struct vhost_dev *dev, unsigned int idx, unsigned int num)
+{
+	struct vhost_virtqueue *vq;
+	int ret;
+
+	if (idx >= dev->nvqs)
+		return -ENOBUFS;
+
+	vq = dev->vqs[idx];
+
+	mutex_lock(&vq->mutex);
+	ret = __vhost_vring_set_num(dev, vq, num);
+	mutex_unlock(&vq->mutex);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(vhost_dev_set_vring_num);
+
+int vhost_dev_set_num_addr(struct vhost_dev *dev, unsigned int idx, void *desc,
+			   void *avail, void *used)
+{
+	struct vhost_virtqueue *vq;
+	int ret = 0;
+
+	if (idx >= dev->nvqs)
+		return -ENOBUFS;
+
+	vq = dev->vqs[idx];
+
+	mutex_lock(&vq->mutex);
+	vq->kern.desc = desc;
+	vq->kern.avail = avail;
+	vq->kern.used = used;
+	vq->last_avail_idx = 0;
+	vq->avail_idx = vq->last_avail_idx;
+	mutex_unlock(&vq->mutex);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(vhost_dev_set_num_addr);
 
 static long vhost_vring_set_num_addr(struct vhost_dev *d,
 				     struct vhost_virtqueue *vq,
