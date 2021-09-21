@@ -2821,18 +2821,24 @@ struct vhost_msg_node *vhost_dequeue_msg(struct vhost_dev *dev,
 }
 EXPORT_SYMBOL_GPL(vhost_dequeue_msg);
 
-void vhost_set_backend_features(struct vhost_dev *dev, u64 features)
+void __vhost_set_backend_features(struct vhost_dev *dev, u64 features)
 {
 	struct vhost_virtqueue *vq;
 	int i;
 
-	mutex_lock(&dev->mutex);
 	for (i = 0; i < dev->nvqs; ++i) {
 		vq = dev->vqs[i];
 		mutex_lock(&vq->mutex);
 		vq->acked_backend_features = features;
 		mutex_unlock(&vq->mutex);
 	}
+}
+EXPORT_SYMBOL_GPL(__vhost_set_backend_features);
+
+void vhost_set_backend_features(struct vhost_dev *dev, u64 features)
+{
+	mutex_lock(&dev->mutex);
+	__vhost_set_backend_features(dev, features);
 	mutex_unlock(&dev->mutex);
 }
 EXPORT_SYMBOL_GPL(vhost_set_backend_features);

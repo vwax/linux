@@ -60,8 +60,13 @@ static long vhost_ioctl(struct file *file, unsigned int ioctl, unsigned long arg
 {
 	struct vhost_dev *dev = file->private_data;
 	struct vhost *vhost = dev->vhost;
+	long ret;
 
-	return vhost->ops->ioctl(dev, ioctl, arg);
+	mutex_lock(&dev->mutex);
+	ret = vhost->ops->ioctl(dev, ioctl, arg);
+	mutex_unlock(&dev->mutex);
+
+	return ret;
 }
 
 static ssize_t vhost_read_iter(struct kiocb *iocb, struct iov_iter *to)

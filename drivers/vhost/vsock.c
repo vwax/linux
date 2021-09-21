@@ -583,8 +583,6 @@ static int vhost_vsock_start(struct vhost_vsock *vsock)
 	size_t i;
 	int ret;
 
-	mutex_lock(&vsock->dev.mutex);
-
 	ret = vhost_dev_check_owner(&vsock->dev);
 	if (ret)
 		goto err;
@@ -614,7 +612,6 @@ static int vhost_vsock_start(struct vhost_vsock *vsock)
 	 */
 	vhost_work_queue(&vsock->dev, &vsock->send_pkt_work);
 
-	mutex_unlock(&vsock->dev.mutex);
 	return 0;
 
 err_vq:
@@ -629,7 +626,6 @@ err_vq:
 		mutex_unlock(&vq->mutex);
 	}
 err:
-	mutex_unlock(&vsock->dev.mutex);
 	return ret;
 }
 
@@ -637,8 +633,6 @@ static int vhost_vsock_stop(struct vhost_vsock *vsock)
 {
 	size_t i;
 	int ret;
-
-	mutex_lock(&vsock->dev.mutex);
 
 	ret = vhost_dev_check_owner(&vsock->dev);
 	if (ret)
@@ -653,7 +647,6 @@ static int vhost_vsock_stop(struct vhost_vsock *vsock)
 	}
 
 err:
-	mutex_unlock(&vsock->dev.mutex);
 	return ret;
 }
 
@@ -821,7 +814,6 @@ static int vhost_vsock_set_features(struct vhost_vsock *vsock, u64 features)
 	if (features & ~VHOST_VSOCK_FEATURES)
 		return -EOPNOTSUPP;
 
-	mutex_lock(&vsock->dev.mutex);
 	if ((features & (1 << VHOST_F_LOG_ALL)) &&
 	    !vhost_log_access_ok(&vsock->dev)) {
 		goto err;
@@ -841,11 +833,9 @@ static int vhost_vsock_set_features(struct vhost_vsock *vsock, u64 features)
 		vq->acked_features = features;
 		mutex_unlock(&vq->mutex);
 	}
-	mutex_unlock(&vsock->dev.mutex);
 	return 0;
 
 err:
-	mutex_unlock(&vsock->dev.mutex);
 	return -EFAULT;
 }
 
@@ -893,13 +883,11 @@ static long vhost_vsock_dev_ioctl(struct vhost_dev *dev, unsigned int ioctl,
 		vhost_set_backend_features(&vsock->dev, features);
 		return 0;
 	default:
-		mutex_lock(&vsock->dev.mutex);
 		r = vhost_dev_ioctl(&vsock->dev, ioctl, argp);
 		if (r == -ENOIOCTLCMD)
 			r = vhost_vring_ioctl(&vsock->dev, ioctl, argp);
 		else
 			vhost_vsock_flush(vsock);
-		mutex_unlock(&vsock->dev.mutex);
 		return r;
 	}
 }

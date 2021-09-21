@@ -1505,7 +1505,6 @@ static long vhost_net_set_backend(struct vhost_net *n, unsigned index, int fd)
 	struct vhost_net_ubuf_ref *ubufs, *oldubufs = NULL;
 	int r;
 
-	mutex_lock(&n->dev.mutex);
 	r = vhost_dev_check_owner(&n->dev);
 	if (r)
 		goto err;
@@ -1573,7 +1572,6 @@ static long vhost_net_set_backend(struct vhost_net *n, unsigned index, int fd)
 		sockfd_put(oldsock);
 	}
 
-	mutex_unlock(&n->dev.mutex);
 	return 0;
 
 err_used:
@@ -1587,7 +1585,6 @@ err_ubufs:
 err_vq:
 	mutex_unlock(&vq->mutex);
 err:
-	mutex_unlock(&n->dev.mutex);
 	return r;
 }
 
@@ -1598,7 +1595,6 @@ static long vhost_net_reset_owner(struct vhost_net *n)
 	long err;
 	struct vhost_iotlb *umem;
 
-	mutex_lock(&n->dev.mutex);
 	err = vhost_dev_check_owner(&n->dev);
 	if (err)
 		goto done;
@@ -1613,7 +1609,6 @@ static long vhost_net_reset_owner(struct vhost_net *n)
 	vhost_dev_reset_owner(&n->dev, umem);
 	vhost_net_vq_reset(n);
 done:
-	mutex_unlock(&n->dev.mutex);
 	if (tx_sock)
 		sockfd_put(tx_sock);
 	if (rx_sock)
@@ -1639,7 +1634,6 @@ static int vhost_net_set_features(struct vhost_net *n, u64 features)
 		vhost_hlen = 0;
 		sock_hlen = hdr_len;
 	}
-	mutex_lock(&n->dev.mutex);
 	if ((features & (1 << VHOST_F_LOG_ALL)) &&
 	    !vhost_log_access_ok(&n->dev))
 		goto out_unlock;
@@ -1656,11 +1650,9 @@ static int vhost_net_set_features(struct vhost_net *n, u64 features)
 		n->vqs[i].sock_hlen = sock_hlen;
 		mutex_unlock(&n->vqs[i].vq.mutex);
 	}
-	mutex_unlock(&n->dev.mutex);
 	return 0;
 
 out_unlock:
-	mutex_unlock(&n->dev.mutex);
 	return -EFAULT;
 }
 
@@ -1668,7 +1660,6 @@ static long vhost_net_set_owner(struct vhost_net *n)
 {
 	int r;
 
-	mutex_lock(&n->dev.mutex);
 	if (vhost_dev_has_owner(&n->dev)) {
 		r = -EBUSY;
 		goto out;
@@ -1681,7 +1672,6 @@ static long vhost_net_set_owner(struct vhost_net *n)
 		vhost_net_clear_ubuf_info(n);
 	vhost_net_flush(n);
 out:
-	mutex_unlock(&n->dev.mutex);
 	return r;
 }
 
@@ -1721,20 +1711,18 @@ static long vhost_net_ioctl(struct vhost_dev *dev, unsigned int ioctl,
 			return -EFAULT;
 		if (features & ~VHOST_NET_BACKEND_FEATURES)
 			return -EOPNOTSUPP;
-		vhost_set_backend_features(&n->dev, features);
+		__vhost_set_backend_features(&n->dev, features);
 		return 0;
 	case VHOST_RESET_OWNER:
 		return vhost_net_reset_owner(n);
 	case VHOST_SET_OWNER:
 		return vhost_net_set_owner(n);
 	default:
-		mutex_lock(&n->dev.mutex);
 		r = vhost_dev_ioctl(&n->dev, ioctl, argp);
 		if (r == -ENOIOCTLCMD)
 			r = vhost_vring_ioctl(&n->dev, ioctl, argp);
 		else
 			vhost_net_flush(n);
-		mutex_unlock(&n->dev.mutex);
 		return r;
 	}
 }
