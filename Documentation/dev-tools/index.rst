@@ -33,6 +33,7 @@ Documentation/dev-tools/testing-overview.rst
    kselftest
    kunit/index
    ktap
+   roadtest
 
 
 .. only::  subproject and html
