@@ -73,7 +73,7 @@ endif
 	${MAKE} -C ${KSOURCE} ARCH=um O=${ROADTEST_BUILD_DIR} olddefconfig
 endif
 	${MAKE} -C ${KSOURCE} ARCH=um O=${ROADTEST_BUILD_DIR} all compile_commands.json
-	${MAKE} -C ${KSOURCE} ARCH=um O=${ROADTEST_BUILD_DIR} INSTALL_HDR_PATH=${KHEADERS} headers_install
+	${MAKE} -C ${KSOURCE} O=${ROADTEST_BUILD_DIR} INSTALL_HDR_PATH=${KHEADERS} headers_install
 	${MAKE} -C ${KSOURCE} ARCH=um O=${ROADTEST_BUILD_DIR} INSTALL_MOD_PATH=${KMODULES} modules_install
 
 test: ${ROADTEST_BUILD_DIR}/roadtest-backend
