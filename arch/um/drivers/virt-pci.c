@@ -54,7 +54,7 @@ static struct irq_domain *um_pci_inner_domain;
 static struct irq_domain *um_pci_msi_domain;
 static unsigned long um_pci_msi_used[BITS_TO_LONGS(MAX_MSI_VECTORS)];
 
-#define UM_VIRT_PCI_MAXDELAY 40000
+#define UM_VIRT_PCI_MAXDELAY 4000000
 
 struct um_pci_message_buffer {
 	struct virtio_pcidev_msg hdr;
