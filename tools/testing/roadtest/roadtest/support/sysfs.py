@@ -141,9 +141,7 @@ class PlatformDriver:
         self.path = Path(f"/sys/bus/platform/drivers/{driver}")
 
     @contextlib.contextmanager
-    def bind(
-        self, addr: Union[str, NodeName, PlatformAddr]
-    ) -> Iterator[PlatformDevice]:
+    def bind(self, addr: PlatformAddr) -> Iterator[PlatformDevice]:
         dev = PlatformDevice(str(addr))
         write_str(self.path / "bind", dev.id)
 

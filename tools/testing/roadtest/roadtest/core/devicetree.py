@@ -82,17 +82,17 @@ HEADER = """
         socket-path = "WORK/pci.sock";
         virtio-device-id = <1234>;
         ranges;
-        status = "disabled";
+
         pci {
                 #address-cells = <3>;
                 #size-cells = <2>;
                 // valid?? copied from falconfalls
                 ranges = <0x0000000 0 0 0 0xf0000000 0 0x20000>;
-                compatible = "virtio,device4d2", "pci", "simple-bus";
+                compatible = "virtio,device4d2", "pci";
                 device_type = "pci";
                 bus-range = <0 0>;
                 platform: gpio@0,0 {
-                        compatible = "pci494f,dc8", "simple-bus";
+                        compatible = "pci494f,dc8";
                         reg = <0x00000 0 0 0x0 0x10000>;
                         interrupt-parent = <&gpio>;
                         ranges;
@@ -200,7 +200,7 @@ class SpiCS(Resource):
 @dataclass
 class PlatformAddr(Resource):
     name: str = "platform"
-    size: int = 0x1000
+    size: int = 0x10000
 
     class Allocator:
         def __init__(self) -> None:

@@ -12,6 +12,8 @@ echo 0 > /sys/bus/spi/drivers_autoprobe
 echo 0 > /sys/bus/serial/drivers_autoprobe
 echo 0 > /sys/bus/platform/drivers_autoprobe
 
+echo $(cat /sys/bus/pci/devices/0000\:00\:00.0/vendor) $(cat /sys/bus/pci/devices/0000\:00\:00.0/device) > /sys/bus/pci/drivers/simple-mfd-pci/new_id
+
 cd ${ROADTEST_KSRC_DIR}/tools/testing/roadtest
 pwd
 
