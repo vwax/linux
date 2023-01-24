@@ -107,6 +107,7 @@ static void goldfish_tty_rw(struct goldfish_tty *qtty,
 				return;
 			}
 			do_rw_io(qtty, dma_handle, avail, is_write);
+			gf_ioread32(qtty->base + GOLDFISH_TTY_REG_VERSION);
 
 			/*
 			 * Unmap the previously mapped region after
