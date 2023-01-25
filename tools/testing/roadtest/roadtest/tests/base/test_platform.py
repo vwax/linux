@@ -2,14 +2,11 @@
 # Copyright Axis Communications AB
 
 import logging
-from pathlib import Path
-import subprocess
 import termios
-from typing import Any, Final, Type
+from pathlib import Path
+from typing import Any, Final
 
-from roadtest import ENV_KSRC_DIR
-from roadtest.backend.platform import PlatformModel, Reg32PlatformModel
-from roadtest.backend.spi import SPIModel
+from roadtest.backend.platform import Reg32PlatformModel
 from roadtest.core.devicetree import DtFragment, GpioPin, PlatformAddr
 from roadtest.core.hardware import PlatformHardware
 from roadtest.support.sysfs import PlatformDriver
@@ -44,7 +41,7 @@ class GoldfishTTY(Reg32PlatformModel):
             # Ranchu version which uses DMA addresses
             REG_VERSION: 0x01,
         }
-        # self._update_irq()
+        self._update_irq()
 
     def _update_irq(self) -> None:
         self.regs[REG_BYTES_READY] = len(self.buffer)
@@ -118,59 +115,30 @@ dts = DtFragment(
 )
 
 
-def test_foo() -> None:
+def test_goldfish() -> None:
     with (
         PlatformHardware(GoldfishTTY, irq=dts.gpio["gpio"]) as hw,
-        PlatformDriver("goldfish_tty").bind(dts.platform["dev"]) as dev,
+        PlatformDriver("goldfish_tty").bind(dts.platform["dev"]),
     ):
         data = b"ABCD"
         with Path("/dev/ttyGF0").open("r+b", buffering=0) as tty:
-            # Note that echoing is actually broken in this driver since it
-            # does DMA to the buffer it gets from tty_prepare_flip_string(),
-            # which is a vmalloc()'d buffer in the __process_echoes() path.
+            # We need to disable echo to get expected results in this test,
+            # but note that echoing is actually broken in this driver since
+            # it does DMA to the buffer it gets from tty_prepare_flip_string(),
+            # which is a vmalloc()'d buffer in the __process_echoes() path,
+            # resulting in a "rejecting DMA map of vmalloc memory" splat.
+            #
+            # But this test is mainly to test our platform handling and we
+            # don't care too much about actual bugs in the driver which
+            # don't affect us.
             fd = tty.fileno()
             attr = termios.tcgetattr(fd)
             attr[3] = attr[3] & ~(termios.ECHO | termios.ICANON)
             termios.tcsetattr(fd, termios.TCSANOW, attr)
 
-            #tty.write(data)
+            tty.write(data)
             hw.model.tx(b"12345")
             hw.kick()
             assert tty.read(10) == b"12345"
 
-        #     print(tty.read(10))
-        #     hw.model.tx(b"67890")
-        #     hw.kick()
-        #     print(tty.read(10))
-
-        # hw.update_mock().recv.assert_called_once_with(data)
-        # gotdata = b"".join([call[0][0] for call in hw.update_mock().recv.call_args_list])
-        # assert not gotdata
-
-
-# def test_illuminance(self) -> None:
-#     with (
-#         PlatformHardware(GoldfishTTY, irq=10) as hw,
-#         PlatformDriver("goldfish_tty").bind("f0010000.foo") as dev,
-#     ):
-#         data = b"ABCD"
-#         with Path("/dev/ttyGF0").open("r+b", buffering=0) as tty:
-#             # Note that echoing is actually broken in this driver since it
-#             # does DMA to the buffer it gets from tty_prepare_flip_string(),
-#             # which is a vmalloc()'d buffer in the __process_echoes() path.
-#             fd = tty.fileno()
-#             attr = termios.tcgetattr(fd)
-#             attr[3] = attr[3] & ~(termios.ECHO | termios.ICANON)
-#             termios.tcsetattr(fd, termios.TCSANOW, attr)
-
-#             tty.write(data)
-#             hw.tx(b"12345")
-#             hw.kick()
-#             print(tty.read(10))
-#             hw.tx(b"67890")
-#             hw.kick()
-#             print(tty.read(10))
-
-#         hw.update_mock().recv.assert_called_once_with(data)
-#         # gotdata = b"".join([call[0][0] for call in mock.recv.call_args_list])
-#         self.fail()
+        hw.update_mock().recv.assert_called_once_with(data)
