@@ -1274,17 +1274,6 @@ config MFD_SIMPLE_MFD_I2C
 	  sub-devices represented by child nodes in Device Tree will be
 	  subsequently registered.
 
-config MFD_SIMPLE_MFD_PCI
-	tristate "Simple Multi-Functional Device support (PCI)"
-	depends on PCI
-	depends on OF || COMPILE_TEST
-	help
-	  This enables support for a PCI driver for which any sub-devices
-	  represented by child nodes in the devicetree will be registered.
-
-	  The driver does not bind to any devices by default; that should
-	  be done via sysfs using new_id.
-
 config MFD_SL28CPLD
 	tristate "Kontron sl28cpld Board Management Controller"
 	depends on I2C
