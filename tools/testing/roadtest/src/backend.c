@@ -792,7 +792,9 @@ static void pci_handle_cmd(VuDev *dev, int qidx)
                         } else if (hdr->addr == 0xe && hdr->size == 1) {
                                 *(uint8_t *)resultv->iov_base = 0x0;
                         } else if (hdr->addr == 0x6 && hdr->size == 2) {
-                                unsigned char data[] = { 0x01, 0x00 };
+                                // PCI_STATUS_CAP_LIST
+                                // PCI_STATUS_IMM_READY
+                                unsigned char data[] = { 0x11, 0x00 };
                                 assert(resultv->iov_len >= 2);
                                 memcpy(resultv->iov_base, data, 2);
                         } else if (hdr->addr == 0x10 && hdr->size == 4) {
@@ -807,8 +809,19 @@ static void pci_handle_cmd(VuDev *dev, int qidx)
                                         assert(resultv->iov_len >= 4);
                                         memcpy(resultv->iov_base, data, 4);
                                 }
+                        } else if (hdr->addr == 0x34 && hdr->size == 1) {
+                                // Capability pointer
+                                unsigned char data[] = { 0x80 };
+                                assert(resultv->iov_len >= 1);
+                                memcpy(resultv->iov_base, data, 1);
+                        } else if (hdr->addr == 0x80 && hdr->size == 2) {
+                                // PCI_CAP_ID_EXP, BCMA requires it
+                                unsigned char data[] = { 0x10, 0x00 };
+                                assert(resultv->iov_len >= 2);
+                                memcpy(resultv->iov_base, data, 2);
                         } else {
-                                warnx("unknown OP_CFG_READ\n");
+                                warnx("unknown OP_CFG_READ at addr %#llx size %#x\n",
+				      hdr->addr, hdr->size);
                         }
                         used += hdr->size;
                         break;

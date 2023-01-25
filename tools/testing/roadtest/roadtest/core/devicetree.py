@@ -91,8 +91,10 @@ HEADER = """
                 compatible = "virtio,device4d2", "pci";
                 device_type = "pci";
                 bus-range = <0 0>;
-                platform: gpio@0,0 {
-                        compatible = "pci494f,dc8";
+                platform: bus@0,0 {
+                        // Works because BCMA driver calls
+                        // of_platform_default_populate().
+                        compatible = "simple-bus";
                         reg = <0x00000 0 0 0x0 0x10000>;
                         interrupt-parent = <&gpio>;
                         ranges;
@@ -204,7 +206,8 @@ class PlatformAddr(Resource):
 
     class Allocator:
         def __init__(self) -> None:
-            self.next = 0x0
+            # BCMA_CORE_SIZE is 0x1000
+            self.next = max(0x1000, PlatformAddr.size)
 
         def allocate(self, res: "PlatformAddr") -> int:
             out = self.next
