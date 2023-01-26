@@ -1333,8 +1333,10 @@ static int __init dmatest_init(void)
 		mutex_unlock(&info->lock);
 	}
 
-	if (params->iterations && wait)
+	if (params->iterations && wait) {
+		wait_event(thread_wait, !is_threaded_test_pending(info));
 		wait_event(thread_wait, !is_threaded_test_run(info));
+	}
 
 	/* module parameters are stable, inittime tests are started,
 	 * let userspace take over 'run' control
