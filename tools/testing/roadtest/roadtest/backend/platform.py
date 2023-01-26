@@ -32,11 +32,11 @@ class PlatformBackend:
         self.model = None
 
     def read(self, addr: int, size: int) -> int:
-        if addr == 0:
-            # See bcma_bus_scan() / bcma_get_next_core()
-            return BCMA_SCAN_ER_TAG_END | BCMA_SCAN_ER_VALID
-        elif addr < BCMA_CORE_SIZE:
-            return 0
+        # if addr == 0:
+        #     # See bcma_bus_scan() / bcma_get_next_core()
+        #     return BCMA_SCAN_ER_TAG_END | BCMA_SCAN_ER_VALID
+        # elif addr < BCMA_CORE_SIZE:
+        #     return 0
 
         if not self.model:
             raise Exception("No platform model loaded")
