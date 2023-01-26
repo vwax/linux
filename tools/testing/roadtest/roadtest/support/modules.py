@@ -4,17 +4,21 @@
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Optional
 
 from roadtest import ENV_BUILD_DIR
 
 
-def modprobe(modname: str, remove: bool = False) -> None:
+def modprobe(
+    modname: str, params: Optional[list[str]] = None, remove: bool = False
+) -> None:
     moddir = Path(os.environ[ENV_BUILD_DIR]) / "modules"
     args = []
     if remove:
         args.append("--remove")
     args += [f"--dirname={moddir}", modname]
+    if params:
+        args.extend(params)
     subprocess.check_output(["/sbin/modprobe"] + args)
 
 
@@ -52,11 +56,12 @@ def unload_modules() -> None:
 
 
 class Module:
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, params: Optional[list[str]] = None) -> None:
         self.name = name
+        self.params = params
 
     def __enter__(self) -> "Module":
-        modprobe(self.name)
+        modprobe(self.name, params=self.params)
         return self
 
     def __exit__(self, *_: Any) -> None:
