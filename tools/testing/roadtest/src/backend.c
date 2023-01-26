@@ -820,7 +820,7 @@ static void pci_handle_cmd(VuDev *dev, int qidx)
                                 assert(resultv->iov_len >= 2);
                                 memcpy(resultv->iov_base, data, 2);
                         } else {
-                                warnx("unknown OP_CFG_READ at addr %#llx size %#x\n",
+                                dbg("unhandled OP_CFG_READ at addr %#llx size %#x\n",
 				      hdr->addr, hdr->size);
                         }
                         used += hdr->size;
