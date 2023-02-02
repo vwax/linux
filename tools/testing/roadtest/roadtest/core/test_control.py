@@ -63,7 +63,7 @@ def test_control(tmp_path: Path) -> None:
     reader.process(vars)
     assert handler.values == [99, 101]
 
-    proxy.subhandler.append(500, 600, 700)
+    proxy.subhandler.append(500, 600, val3=700)
     reader.process(vars)
     assert handler.subhandler.values == [500, 600, 700]
 
