@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class ADC084S021(WordSPIModel):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(wordbytes=2, byteorder="big", **kwargs)
-        self.values = (0, 0, 0, 0)
+        self.values: tuple[int, int, int, int] = (0, 0, 0, 0)
 
     def word_xfer(self, inwords: Sequence[int]) -> Sequence[int]:
         logger.debug(f"{inwords=}")
@@ -30,9 +30,6 @@ class ADC084S021(WordSPIModel):
         outwords = [0] + [self.values[word >> (8 + 3)] << 4 for word in inwords[:-1]]
         logger.debug(f"{outwords=}")
         return outwords
-
-    def set_values(self, values: tuple[int, int, int, int]) -> None:
-        self.values = values
 
 
 dts = DtFragment(
@@ -78,7 +75,7 @@ def dev() -> Iterator:
 @flaky_bus
 def test_illuminance(hw: SPIHardware[ADC084S021], dev: IIODevice) -> None:
     values = (10, 20, 30, 40)
-    hw.model.set_values(values)
+    hw.model.values = values
 
     for chan, value in enumerate(values):
         raw = dev.path / f"in_voltage{chan}_raw"
@@ -109,7 +106,7 @@ def buffer_enable(dev: IIODevice) -> Iterator:
 
 @flaky_bus
 def test_proximity_triggered(hw: SPIHardware[ADC084S021], dev: IIODevice) -> None:
-    hw.model.set_values((10, 20, 30, 40))
+    hw.model.values = (10, 20, 30, 40)
 
     with sysfs_trigger():
         write_int(dev.path / "buffer0/in_voltage1_en", 1)

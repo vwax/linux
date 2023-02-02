@@ -77,11 +77,11 @@ def test_illuminance_scale(dev: IIODevice) -> None:
 
 @pytest.mark.parametrize("data", [0x0000, 0x1234, 0xFFFF])
 def test_illuminance(hw: Hardware[VCNL4200], dev: IIODevice, data: int) -> None:
-    hw.model.reg_write(0x09, data)
+    hw.model.regs[0x09] = data
     assert int(dev.in_illuminance_raw) == data
 
 
 @pytest.mark.parametrize("data", [0x0000, 0x1234, 0xFFFF])
 def test_proximity(hw: Hardware[VCNL4200], dev: IIODevice, data: int) -> None:
-    hw.model.reg_write(0x08, data)
+    hw.model.regs[0x08] = data
     assert int(dev.in_proximity_raw) == data

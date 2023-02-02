@@ -43,9 +43,6 @@ class I2CBackend:
 
         self.model.write_flaky_addr(addr >> 1, data)
 
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self.model, name)
-
 
 class I2CModel(abc.ABC):
     def __init__(self, backend: "Backend") -> None:

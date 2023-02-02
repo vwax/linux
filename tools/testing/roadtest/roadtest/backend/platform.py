@@ -49,9 +49,6 @@ class PlatformBackend:
 
         self.model.write(addr, size, value)
 
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self.model, name)
-
 
 class PlatformModel(abc.ABC):
     def __init__(self, backend: "Backend") -> None:

@@ -66,7 +66,9 @@ class Hardware(Generic[ModelT], contextlib.AbstractContextManager):
         self.loaded_model = False
 
         # Make the proxy transparent to type checkers.
-        self.model = cast(ModelT, ControlProxy(call=partial(self._call, self.bus)))
+        self.model = cast(
+            ModelT, ControlProxy(name="model", call=partial(self._call, self.bus))
+        )
 
         # Ignore old entries
         self.opslog.read_next()
