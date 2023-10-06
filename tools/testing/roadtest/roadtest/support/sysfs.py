@@ -20,6 +20,10 @@ def write_int(path: Path, val: int) -> None:
     write_str(path, str(val))
 
 
+def write_bool(path: Path, val: bool) -> None:
+    write_str(path, "1" if val else "0")
+
+
 def write_float(path: Path, val: float) -> None:
     write_str(path, str(val))
 
@@ -30,6 +34,10 @@ def read_str(path: Path) -> str:
 
 def read_int(path: Path) -> int:
     return int(read_str(path))
+
+
+def read_bool(path: Path) -> bool:
+    return True if read_str(path) in ["Y", "y", "1"] else False
 
 
 def read_float(path: Path) -> float:
@@ -114,8 +122,16 @@ class SPIDriver:
 
 class SerialDevice:
     def __init__(self, addr: SerialAddr) -> None:
-        self.id = f"serial{addr.bus}-{addr.val}"
+        # The serdev bus number is managed by an idr so the number
+        # is always zero if no other busses are active (this is
+        # the serial0 part of the id below)
+        #
+        # And only one device is supported by serialdev (the -0 part)
+        self.id = "serial0-0"
         self.path = Path(f"/sys/bus/serial/devices/{self.id}")
+
+    def get_subdev(self, name: str) -> str:
+        return next(self.path.glob(f"*:{name}")).name
 
 
 class SerialDriver:
@@ -128,6 +144,8 @@ class SerialDriver:
         dev = SerialDevice(addr)
         with I2CDriver("sc16is7xx").bind(I2CAddr(addr.bridge_addr)):
             write_str(self.path / "bind", dev.id)
+
+            load_modules(dev.path.glob("**/modalias"))
 
             try:
                 yield dev

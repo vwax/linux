@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include <linux/virtio_gpio.h>
 #include <linux/virtio_i2c.h>
+#include <linux/virtio_pcidev.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
 
@@ -49,6 +50,12 @@ struct vhost_user_gpio {
 	VuVirtqElement *irq_elements[64];
 };
 
+struct vhost_user_pci {
+	VuDev dev;
+	FILE *control;
+	bool bar_written;
+};
+
 #define dbg(...)                                                               \
 	do {                                                                   \
 		if (0) {                                                       \
@@ -62,13 +69,17 @@ static int epfd;
 
 static PyObject *py_i2c_read, *py_i2c_write, *py_process_control;
 static PyObject *py_gpio_set_irq_type, *py_gpio_unmask;
+static PyObject *py_platform_read, *py_platform_write;
+static PyObject *py_gpio_set_value;
 
 static const char *opt_main_script;
 static char *opt_gpio_socket;
 static char *opt_i2c_socket;
+static char *opt_pci_socket;
 
 static struct vhost_user_gpio gpio;
 static struct vhost_user_i2c i2c;
+static struct vhost_user_pci pci;
 
 static void dump_iov(const char *what, struct iovec *iovec, unsigned int count)
 {
@@ -142,6 +153,62 @@ static bool i2c_write(struct vhost_user_i2c *vi, uint16_t addr,
 	return true;
 }
 
+static unsigned long platform_read(unsigned long addr, unsigned long size)
+{
+	PyObject *pArgs, *pAddr, *pSize, *pValue;
+
+	dbg("platform read addr %#lx size %zu\n", addr, size);
+
+	pArgs = PyTuple_New(2);
+
+	pAddr = PyLong_FromUnsignedLong(addr);
+	pSize = PyLong_FromUnsignedLong(size);
+
+	PyTuple_SetItem(pArgs, 0, pAddr);
+	PyTuple_SetItem(pArgs, 1, pSize);
+
+	pValue = PyObject_CallObject(py_platform_read, pArgs);
+	Py_DECREF(pArgs);
+	if (!pValue) {
+		PyErr_Print();
+		errx(1, "platform.read() failed");
+	}
+
+	unsigned long value;
+	value = PyLong_AsUnsignedLong(pValue);
+	if (value == (unsigned long)-1 && PyErr_Occurred()) {
+		PyErr_Print();
+		errx(1, "invalid result from platform.read()");
+	}
+
+	return value;
+}
+
+static void platform_write(struct vhost_user_pci *pci, unsigned long addr,
+						   unsigned long value, unsigned long size)
+{
+	PyObject *pArgs, *pAddr, *pSize, *pValue;
+
+	dbg("platform write addr %#lx size %zu value %#lx\n", addr, size, value);
+
+	pArgs = PyTuple_New(3);
+
+	pAddr = PyLong_FromUnsignedLong(addr);
+	pSize = PyLong_FromUnsignedLong(size);
+	pValue = PyLong_FromUnsignedLong(value);
+
+	PyTuple_SetItem(pArgs, 0, pAddr);
+	PyTuple_SetItem(pArgs, 1, pSize);
+	PyTuple_SetItem(pArgs, 2, pValue);
+
+	pValue = PyObject_CallObject(py_platform_write, pArgs);
+	Py_DECREF(pArgs);
+	if (!pValue) {
+		PyErr_Print();
+		errx(1, "platform.write() failed");
+	}
+}
+
 static void gpio_send_irq_response(struct vhost_user_gpio *gpio,
 				   unsigned int pin, unsigned int status);
 
@@ -159,9 +226,65 @@ static PyObject *cbackend_trigger_gpio_irq(PyObject *self, PyObject *args)
 	Py_RETURN_NONE;
 }
 
+static PyObject *cbackend_dma_read(PyObject *self, PyObject *args)
+{
+	unsigned long addr, len, outlen;
+	void *virt;
+
+	if (!PyArg_ParseTuple(args, "kk", &addr, &len))
+		return NULL;
+
+	outlen = len;
+	virt = vu_gpa_to_va(&pci.dev, &outlen, addr);
+	dbg("virt %p addr %#lx len %#lx outlen %#lx\n", virt, addr, len, outlen);
+	if (!virt) {
+		PyErr_SetString(PyExc_BufferError, "DMA read from invalid address");
+		return NULL;
+	}
+	if (outlen != len) {
+		PyErr_SetString(PyExc_BufferError, "DMA read overflows area");
+		return NULL;
+	}
+
+	return PyBytes_FromStringAndSize(virt, len);
+}
+
+static PyObject *cbackend_dma_write(PyObject *self, PyObject *args)
+{
+	unsigned long addr, outlen;
+	Py_buffer buffer;
+	void *virt;
+
+	if (!PyArg_ParseTuple(args, "ky*", &addr, &buffer))
+		return NULL;
+
+	outlen = buffer.len;
+	virt = vu_gpa_to_va(&pci.dev, &outlen, addr);
+	dbg("virt %p addr %#lx len %#lx outlen %#lx\n", virt, addr, buffer.len, outlen);
+	if (!virt) {
+		PyBuffer_Release(&buffer);
+		PyErr_SetString(PyExc_BufferError, "DMA write to invalid address");
+		return NULL;
+	}
+	if (outlen != buffer.len) {
+		PyBuffer_Release(&buffer);
+		PyErr_SetString(PyExc_BufferError, "DMA write overflows area");
+		return NULL;
+	}
+
+	memcpy(virt, buffer.buf, buffer.len);
+	PyBuffer_Release(&buffer);
+
+	Py_RETURN_NONE;
+}
+
 static PyMethodDef EmbMethods[] = {
 	{ "trigger_gpio_irq", cbackend_trigger_gpio_irq, METH_VARARGS,
 	  "Return the number of arguments received by the process." },
+	{ "dma_read", cbackend_dma_read, METH_VARARGS,
+	  "DMA read." },
+	{ "dma_write", cbackend_dma_write, METH_VARARGS,
+	  "DMA write." },
 	{ NULL, NULL, 0, NULL }
 };
 
@@ -217,10 +340,38 @@ static void init_python_gpio(PyObject *backend)
 		errx(1, "error getting gpio.set_irq_type");
 	}
 
+	py_gpio_set_value = PyObject_GetAttrString(gpio, "set_value");
+	if (!py_gpio_set_value) {
+		PyErr_Print();
+		errx(1, "error getting gpio.set_value");
+	}
+
 	py_gpio_unmask = PyObject_GetAttrString(gpio, "unmask");
 	if (!py_gpio_unmask) {
 		PyErr_Print();
 		errx(1, "error getting gpio.unmask");
+	}
+}
+
+static void init_python_platform(PyObject *backend)
+{
+	PyObject *platform = PyObject_GetAttrString(backend, "platform");
+
+	if (!platform) {
+		PyErr_Print();
+		errx(1, "Error getting backend.platform");
+	}
+
+	py_platform_read = PyObject_GetAttrString(platform, "read");
+	if (!py_platform_read) {
+		PyErr_Print();
+		errx(1, "Error getting platform.read");
+	}
+
+	py_platform_write = PyObject_GetAttrString(platform, "write");
+	if (!py_platform_write) {
+		PyErr_Print();
+		errx(1, "Error getting platform.write");
 	}
 }
 
@@ -262,6 +413,7 @@ static void init_python(void)
 	}
 
 	init_python_i2c(backend);
+	init_python_platform(backend);
 	init_python_gpio(backend);
 }
 
@@ -336,6 +488,7 @@ static void i2c_queue_set_started(VuDev *dev, int qidx, bool started)
 
 static bool i2cquit;
 static bool gpioquit;
+static bool pciquit;
 
 static void remove_watch(VuDev *dev, int fd);
 
@@ -355,6 +508,17 @@ static int gpio_process_msg(VuDev *dev, VhostUserMsg *vmsg, int *do_reply)
 		dbg("gpio disconnect");
 		remove_watch(dev, -1);
 		gpioquit = true;
+		return true;
+	}
+	return false;
+}
+
+static int pci_process_msg(VuDev *dev, VhostUserMsg *vmsg, int *do_reply)
+{
+	if (vmsg->request == VHOST_USER_NONE) {
+		dbg("pci disconnect");
+		remove_watch(dev, -1);
+		pciquit = true;
 		return true;
 	}
 	return false;
@@ -425,6 +589,26 @@ static void gpio_set_irq_type(struct vhost_user_gpio *gpio, unsigned int pin,
 	}
 }
 
+static void gpio_set_value(struct vhost_user_gpio *gpio, unsigned int pin,
+                           unsigned int value)
+{
+	PyObject *pArgs, *pValue;
+
+	pArgs = PyTuple_New(2);
+	pValue = PyLong_FromLong(pin);
+	PyTuple_SetItem(pArgs, 0, pValue);
+
+	pValue = PyLong_FromLong(value);
+	PyTuple_SetItem(pArgs, 1, pValue);
+
+	pValue = PyObject_CallObject(py_gpio_set_value, pArgs);
+	if (!pValue) {
+		PyErr_Print();
+		errx(1, "error from gpio.set_value()");
+	}
+	Py_DECREF(pArgs);
+}
+
 static void gpio_unmask(struct vhost_user_gpio *vi, unsigned int gpio)
 {
 	PyObject *pArgs, *pValue;
@@ -482,6 +666,10 @@ static void gpio_handle_cmdq(VuDev *dev, int qidx)
 		case VIRTIO_GPIO_MSG_GET_DIRECTION:
 			dbg("get direction\n");
 			resp->value = VIRTIO_GPIO_DIRECTION_IN;
+			break;
+		case VIRTIO_GPIO_MSG_SET_VALUE:
+			dbg("set value\n");
+			gpio_set_value(vi, req->gpio, req->value);
 			break;
 		default:
 			resp->value = 0;
@@ -592,9 +780,105 @@ static const VuDevIface gpio_vuiface = {
 	.get_protocol_features = gpio_get_protocol_features,
 };
 
+static void pci_handle_cmd(VuDev *dev, int qidx)
+{
+        struct vhost_user_pci *vi =
+                container_of(dev, struct vhost_user_pci, dev);
+        VuVirtq *vq = vu_get_queue(dev, qidx);
+        VuVirtqElement *elem;
+
+        dbg("%s\n", __func__);
+
+        for (;;) {
+                struct virtio_pcidev_msg *hdr;
+                // struct iovec *result;
+                size_t used = 0;
+                // bool ok = true;
+
+                elem = vu_queue_pop(dev, vq, sizeof(VuVirtqElement));
+                if (!elem) {
+                        break;
+                }
+
+                dbg("elem %p index %u out_num %u in_num %u\n", elem,
+                       elem->index, elem->out_num, elem->in_num);
+                dump_iov("out", elem->out_sg, elem->out_num);
+                dump_iov("in", elem->in_sg, elem->in_num);
+
+                assert(elem->out_sg[0].iov_len >= sizeof(*hdr));
+                hdr = elem->out_sg[0].iov_base;
+
+                dbg("PCI op %#x size %#x addr %#llx\n", hdr->op, hdr->size,
+                       hdr->addr);
+
+                switch (hdr->op) {
+				case VIRTIO_PCIDEV_OP_MMIO_READ: {
+					assert(elem->in_num == 1 && elem->out_num == 1);
+					assert(hdr->size == 4);
+
+					struct iovec *resultv = &elem->in_sg[0];
+					assert(resultv->iov_len >= 4);
+
+					unsigned int value = platform_read(hdr->addr, hdr->size);
+
+					memcpy(resultv->iov_base, &value, 4);
+					used += hdr->size;
+					break;
+				}
+				case VIRTIO_PCIDEV_OP_MMIO_WRITE: {
+					unsigned int value;
+
+					assert(elem->in_num == 0);
+					assert(elem->out_num == 1 || elem->out_num == 2);
+					assert(hdr->size == 4);
+
+					if (elem->out_num == 1) {
+						// Posted
+						struct iovec *datav = &elem->out_sg[0];
+						assert(datav->iov_len >= sizeof(*hdr) + hdr->size);
+						value = *(unsigned int *) (datav->iov_base + sizeof(*hdr));
+					}	else {
+						// Non-posted
+						struct iovec *datav = &elem->out_sg[1];
+						assert(datav->iov_len >= 4);
+						value = *(unsigned int *) (datav->iov_base);
+					}
+
+					platform_write(vi, hdr->addr, value, hdr->size);
+					break;
+				}
+				default:
+					assert(false);
+					break;
+                }
+
+                used += sizeof(*hdr);
+                vu_queue_push(dev, vq, elem, used);
+                free(elem);
+        }
+
+        vu_queue_notify(&vi->dev, vq);
+}
+
+static void pci_queue_set_started(VuDev *dev, int qidx, bool started)
+{
+        VuVirtq *vq = vu_get_queue(dev, qidx);
+
+        dbg("queue started %d:%d\n", qidx, started);
+
+        if (qidx == 0) {
+                vu_set_queue_handler(dev, vq, started ? pci_handle_cmd : NULL);
+        }
+}
+
+static const VuDevIface pci_iface = {
+	.queue_set_started = pci_queue_set_started,
+	.process_msg = pci_process_msg,
+};
+
 static void panic(VuDev *dev, const char *err)
 {
-	fprintf(stderr, "panicking!");
+	fprintf(stderr, "panicking: %s!", err);
 	abort();
 }
 
@@ -742,6 +1026,28 @@ static VuDev *i2c_init(int epfd, const char *path)
 	return dev;
 }
 
+static VuDev *pci_init(int epfd, const char *path)
+{
+	VuDev *dev = &pci.dev;
+	struct watch *watch;
+	int lsock;
+	bool rc;
+
+	lsock = unix_listen(path);
+	if (lsock < 0)
+		err(1, "listen %s", path);
+
+	rc = vu_init(dev, 2, lsock, panic, NULL, set_watch,
+		     remove_watch, &pci_iface);
+	assert(rc == true);
+
+	watch = new_watch(dev, lsock, LISTEN, vu_dispatch, dev);
+
+	dev_add_watch(epfd, watch);
+
+	return dev;
+}
+
 static pid_t run_uml(char **argv)
 {
 	int log, null, ret;
@@ -787,6 +1093,7 @@ int main(int argc, char *argv[])
 		{ "main-script", required_argument, 0, 'm' },
 		{ "gpio-socket", required_argument, 0, 'g' },
 		{ "i2c-socket", required_argument, 0, 'i' },
+		{ "pci-socket", required_argument, 0, 'p' },
 	};
 
 	while (1) {
@@ -808,6 +1115,10 @@ int main(int argc, char *argv[])
 			opt_i2c_socket = optarg;
 			break;
 
+		case 'p':
+			opt_pci_socket = optarg;
+			break;
+
 		default:
 			errx(1, "getopt");
 		}
@@ -824,6 +1135,7 @@ int main(int argc, char *argv[])
 
 	gpio_init(epfd, opt_gpio_socket);
 	i2c_init(epfd, opt_i2c_socket);
+	pci_init(epfd, opt_pci_socket);
 
 	run_uml(&argv[optind]);
 
@@ -886,12 +1198,13 @@ int main(int argc, char *argv[])
 			}
 		}
 
-		if (i2cquit && gpioquit)
+		if (i2cquit && gpioquit && pciquit)
 			break;
 	}
 
 	vu_deinit(&i2c.dev);
 	vu_deinit(&gpio.dev);
+	vu_deinit(&pci.dev);
 
 	Py_Finalize();
 

@@ -39,9 +39,6 @@ class PlatformBackend:
 
         self.model.write(addr, size, value)
 
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self.model, name)
-
 
 class PlatformModel(abc.ABC):
     def __init__(self, backend: "Backend") -> None:
@@ -63,6 +60,8 @@ class Reg32PlatformModel(PlatformModel):
 
     def read(self, addr: int, size: int) -> int:
         assert size == 4
+        addr &= 0xFFFF
+        self.backend.mock.reg_read(addr)
         return self.readl(addr)
 
     @abc.abstractmethod
@@ -71,4 +70,6 @@ class Reg32PlatformModel(PlatformModel):
 
     def write(self, addr: int, size: int, value: int) -> None:
         assert size == 4
+        addr &= 0xFFFF
+        self.backend.mock.reg_write(addr, value)
         self.writel(addr, value)

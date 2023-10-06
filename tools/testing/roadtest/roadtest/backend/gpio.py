@@ -110,5 +110,8 @@ class GpioBackend:
     def set_irq_type(self, pin: int, irq_type: int) -> None:
         self.gpios[pin].set_irq_type(irq_type)
 
+    def set_value(self, pin: int, value: int) -> None:
+        self.backend.mock.gpio_set_value(pin, value)
+
     def unmask(self, pin: int) -> None:
         self.gpios[pin].unmask()

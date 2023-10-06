@@ -53,14 +53,34 @@ class IIOChanType(enum.IntEnum):
     IIO_MASSCONCENTRATION = 34
 
 
+class IIOEventType(enum.IntEnum):
+    IIO_EV_TYPE_THRESH = 0
+    IIO_EV_TYPE_MAG = 1
+    IIO_EV_TYPE_ROC = 2
+    IIO_EV_TYPE_THRESH_ADAPTIVE = 3
+    IIO_EV_TYPE_MAG_ADAPTIVE = 4
+    IIO_EV_TYPE_CHANGE = 5
+
+
+class IIOEventDirection(enum.IntEnum):
+    IIO_EV_DIR_EITHER = 0
+    IIO_EV_DIR_RISING = 1
+    IIO_EV_DIR_FALLING = 2
+    IIO_EV_DIR_NONE = 3
+
+
 @dataclass
 class IIOEvent:
     id: int
     timestamp: int
-    type: IIOChanType = field(init=False)
+    type: IIOEventType = field(init=False)
+    ch_type: IIOChanType = field(init=False)
+    dir: IIOEventDirection = field(init=False)
 
     def __post_init__(self) -> None:
-        self.type = IIOChanType((self.id >> 32) & 0xFF)
+        self.type = IIOEventType((self.id >> 56) & 0xFF)
+        self.ch_type = IIOChanType((self.id >> 32) & 0xFF)
+        self.dir = IIOEventDirection((self.id >> 48) & 0x7F)
 
 
 class IIOEventMonitor(contextlib.AbstractContextManager):

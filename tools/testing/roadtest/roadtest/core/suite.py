@@ -165,7 +165,7 @@ class UMLInstance:
                 # The socket locations are also present in the devicetree.
                 f"--gpio-socket={self.workdir}/gpio.sock",
                 f"--i2c-socket={self.workdir}/i2c.sock",
-                # f"--pci-socket={self.workdir}/pci.sock",
+                f"--pci-socket={self.workdir}/pci.sock",
                 f"--main-script={main_script}",
                 "--",
             ]

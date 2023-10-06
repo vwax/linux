@@ -82,21 +82,12 @@ HEADER = """
         socket-path = "WORK/pci.sock";
         virtio-device-id = <1234>;
         ranges;
-        status = "disabled";
-        pci {
-                #address-cells = <3>;
-                #size-cells = <2>;
-                // valid?? copied from falconfalls
-                ranges = <0x0000000 0 0 0 0xf0000000 0 0x20000>;
-                compatible = "virtio,device4d2", "pci", "simple-bus";
-                device_type = "pci";
-                bus-range = <0 0>;
-                platform: gpio@0,0 {
-                        compatible = "pci494f,dc8", "simple-bus";
-                        reg = <0x00000 0 0 0x0 0x10000>;
-                        interrupt-parent = <&gpio>;
-                        ranges;
-                };
+
+        platform: bus@0,0 {
+                compatible = "virtio,device4d2", "simple-bus";
+                reg = <0x00000 0 0x0 0x10000>;
+                interrupt-parent = <&gpio>;
+                ranges;
         };
     };
 
@@ -200,11 +191,13 @@ class SpiCS(Resource):
 @dataclass
 class PlatformAddr(Resource):
     name: str = "platform"
-    size: int = 0x1000
+    size: int = 0x10000
 
     class Allocator:
         def __init__(self) -> None:
-            self.next = 0x0
+            # Start at non-zero so offset handling is tested even only one
+            # device.
+            self.next = max(0x10000, PlatformAddr.size)
 
         def allocate(self, res: "PlatformAddr") -> int:
             out = self.next
@@ -213,14 +206,18 @@ class PlatformAddr(Resource):
 
     @property
     def regs(self) -> str:
-        return f"0x00000 0 {self.val:#x} 0 {self.size:#x}"
+        return f"0x00000 {0x10000000 + self.val:#x} 0 {self.size:#x}"
+
+    @property
+    def reg(self) -> list[int]:
+        return [0x00000, 0x10000000 + self.val, 0, self.size]
 
     @property
     def node(self) -> str:
         return f"{self.name}@{self.val:x}"
 
     def __str__(self) -> str:
-        return f"{0xf0000000 + self.val:x}.{self.name}"
+        return f"{0x10000000 + self.val:x}.{self.name}"
 
 
 @dataclass
@@ -371,7 +368,7 @@ class DtFragment:
             return str.format(var, **all)
 
         self.applied = True
-        return re.sub("[$]([a-zA-Z0-9-_.]+)[$]", repl, src)
+        return re.sub(r"[$]([a-zA-Z0-9-_.\]\[]+)[$]", repl, src)
 
 
 class FragmentManager:

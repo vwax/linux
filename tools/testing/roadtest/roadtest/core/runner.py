@@ -37,6 +37,7 @@ class RunnerArgs:
             "printk.devkmsg=on",
             # Make debugging simpler.
             "no_hash_pointers",
+            "virt-pci.max_delay_us=4000000",
         ]
 
         if self.shell:

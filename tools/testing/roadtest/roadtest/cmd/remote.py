@@ -59,6 +59,7 @@ def main() -> None:
             # which leads to some wierdness with the test names, so reset it.
             "--rootdir=.",
         ]
+        + info["extra_cmdline_args"]
         + tests,
         plugins=[MyPlugin(testinfos)],
     )

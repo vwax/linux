@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, call
 from roadtest import ENV_WORK_DIR
 from roadtest.backend.i2c import I2CModel
 from roadtest.backend.platform import PlatformModel
+from roadtest.backend.serial import SerialModel
 from roadtest.backend.spi import SPIModel
 from roadtest.core.control import ControlProxy, ControlWriter
 from roadtest.core.devicetree import GpioPin
@@ -66,7 +67,9 @@ class Hardware(Generic[ModelT], contextlib.AbstractContextManager):
         self.loaded_model = False
 
         # Make the proxy transparent to type checkers.
-        self.model = cast(ModelT, ControlProxy(call=partial(self._call, self.bus)))
+        self.model = cast(
+            ModelT, ControlProxy(name="model", call=partial(self._call, self.bus))
+        )
 
         # Ignore old entries
         self.opslog.read_next()
@@ -137,8 +140,11 @@ class SPIHardware(Hardware[SPIModelT]):
         self.load_model(cls, *args, **kwargs)
 
 
-class SerialHardware(Hardware):
-    def __init__(self, cls: Type[I2CModelT], *args: Any, **kwargs: Any):
+SerialModelT = TypeVar("SerialModelT", bound=SerialModel)
+
+
+class SerialHardware(Hardware[SerialModelT]):
+    def __init__(self, cls: Type[SerialModelT], *args: Any, **kwargs: Any):
         super().__init__("i2c")
         # Gpio 1 is reserved for this by the allocator
         kwargs["bridge_irq"] = GpioPin(1)
@@ -152,3 +158,8 @@ class PlatformHardware(Hardware[PlatformModelT]):
     def __init__(self, cls: Type[PlatformModelT], *args: Any, **kwargs: Any):
         super().__init__("platform")
         self.load_model(cls, *args, **kwargs)
+
+
+class NoBusHardware(Hardware):
+    def __init__(self) -> None:
+        super().__init__("dummy")

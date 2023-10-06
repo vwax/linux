@@ -2,24 +2,32 @@
 # Copyright Axis Communications AB
 
 import logging
-from typing import Any, Iterator
+from pathlib import Path
+from typing import Any, Final, Iterator
 
 import pytest
 
 from roadtest.backend.i2c import SMBusModel
 from roadtest.core.devicetree import DtFragment, I2CAddr
 from roadtest.core.hardware import I2CHardware
-from roadtest.support.sysfs import I2CDriver
+from roadtest.support.sysfs import I2CDriver, write_int
 from roadtest.tests.iio.iio import IIODevice
 
 logger = logging.getLogger(__name__)
+
+ALS_CONF: Final = 0x00
+ALS_CONF_ALS_SD: Final = 0x01
+PS_CONF1: Final = 0x03
+PS_CONF1_PS_SD: Final = 0x01
+PS_DATA: Final = 0x08
+ALS_DATA: Final = 0x09
 
 
 class VCNL4040(SMBusModel):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(regbytes=2, byteorder="little", **kwargs)
         self.regs = {
-            0x00: 0x0101,
+            0x00: 0x0001,
             0x01: 0x0000,
             0x02: 0x0000,
             0x03: 0x0001,
@@ -78,19 +86,16 @@ def dev() -> Iterator:
 
 
 def test_illuminance_scale(hw: I2CHardware[VCNL4040], dev: IIODevice) -> None:
-    # The datasheet says 0.10 lux/step, but the driver follows
-    # the application note "Designing the VCNL4040 Into an
-    # Application" which claims a different value.
-    assert float(dev.in_illuminance_scale) == 0.12
+    assert float(dev.in_illuminance_scale) == 0.10
 
 
 @pytest.mark.parametrize("data", [0x0000, 0x1234, 0xFFFF])
 def test_illuminance(hw: I2CHardware[VCNL4040], dev: IIODevice, data: int) -> None:
-    hw.model.reg_write(0x09, data)
+    hw.model.reg_write(ALS_DATA, data)
     assert int(dev.in_illuminance_raw) == data
 
 
 @pytest.mark.parametrize("data", [0x0000, 0x1234, 0xFFFF])
 def test_proximity(hw: I2CHardware[VCNL4040], dev: IIODevice, data: int) -> None:
-    hw.model.reg_write(0x08, data)
+    hw.model.reg_write(PS_DATA, data)
     assert int(dev.in_proximity_raw) == data

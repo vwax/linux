@@ -28,6 +28,7 @@ class SPIModel(NonFlakyI2CModel):
     def xfer_flaky(self, indata: bytes) -> bytes:
         self.update(indata)
         self.fault_inject()
+        self.backend.mock.xfer(indata)
         outdata = self.xfer(indata)
         self.update(outdata)
         return outdata

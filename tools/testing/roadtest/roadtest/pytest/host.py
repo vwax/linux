@@ -114,6 +114,12 @@ class HostPlugin:
         self.config = config
         self.args = RunnerArgs.from_namespace(config.option)
         self.notrunids: list[str] = []
+        self.extra_cmdline_args = []
+
+        # This should probably be replaced with some generical method to
+        # pass along cmdline options
+        if config.getoption("runxfail"):
+            self.extra_cmdline_args.append("--runxfail")
 
         print(self.args)
 
@@ -221,6 +227,7 @@ class HostPlugin:
 
             info = {
                 "tests": testinfos,
+                "extra_cmdline_args": self.extra_cmdline_args,
             }
 
             with (workdir / "tests.json").open("w") as f:

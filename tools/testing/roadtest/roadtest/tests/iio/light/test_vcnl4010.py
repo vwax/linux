@@ -229,7 +229,7 @@ def test_proximity_thresh_rising(hw: I2CHardware[VCNL4010], dev: I2CDevice) -> N
         #     return
 
         event = mon.read()
-        assert event.type == iio.IIOChanType.IIO_PROXIMITY
+        assert event.ch_type == iio.IIOChanType.IIO_PROXIMITY
 
 
 def test_proximity_thresh_falling(hw: I2CHardware[VCNL4010], dev: I2CDevice) -> None:
@@ -261,7 +261,7 @@ def test_proximity_thresh_falling(hw: I2CHardware[VCNL4010], dev: I2CDevice) -> 
         #     return
 
         event = mon.read()
-        assert event.type == iio.IIOChanType.IIO_PROXIMITY
+        assert event.ch_type == iio.IIOChanType.IIO_PROXIMITY
 
 
 @contextlib.contextmanager

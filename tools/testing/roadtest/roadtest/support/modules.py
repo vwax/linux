@@ -33,6 +33,14 @@ def load_modules(files: Iterator[Path]) -> None:
     if not aliases:
         return
 
+    # "simple-battery" in compatible property is a special case as it's not a
+    # real driver to be load, only checked in drivers/power/supply/power_supply_core.c
+    # as a string value.
+
+    simple_battery = "of:NbatteryT(null)Csimple-battery"
+    if simple_battery in aliases:
+        aliases.remove(simple_battery)
+
     moddir = Path(os.environ[ENV_BUILD_DIR]) / "modules"
     args = ["/sbin/modprobe", f"--dirname={moddir}", "-a"] + aliases
     subprocess.check_call(args)

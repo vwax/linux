@@ -48,7 +48,7 @@ class SerialModel(NonFlakyI2CModel):
         self._set_irq(False)
         self.trigger_thr = False
         self.reg_addr = 0
-        self.regs = {
+        self.bridge_regs = {
             REG_RHR: 0x00,
             REG_IER: 0x00,
             REG_FCR: 0x00,
@@ -71,9 +71,9 @@ class SerialModel(NonFlakyI2CModel):
         # from the driver.
         rxlvl = min(63, len(self.buffer))
         logger.debug(f"{self.buffer=} {rxlvl=}")
-        self.regs[REG_RXLVL] = rxlvl
+        self.bridge_regs[REG_RXLVL] = rxlvl
 
-        ier = self.regs[REG_IER]
+        ier = self.bridge_regs[REG_IER]
         src = 0
         if rxlvl > 0 and (ier & REG_IER_RHR):
             src = REG_IIR_SRC_RHR
@@ -93,7 +93,7 @@ class SerialModel(NonFlakyI2CModel):
 
     # Ignore special and enhanced register sets
     def _ignore(self, addr: int) -> bool:
-        lcr = self.regs[REG_LCR]
+        lcr = self.bridge_regs[REG_LCR]
         if lcr & (1 << 7) and addr <= 1:
             return True
         elif lcr == 0xBF and addr in [2, 4, 5, 6, 7]:
@@ -125,11 +125,11 @@ class SerialModel(NonFlakyI2CModel):
             return bytes([value])
 
         if addr == REG_RXLVL:
-            logger.debug(f"rxlvl read {self.regs[addr]}")
+            logger.debug(f"rxlvl read {self.bridge_regs[addr]}")
 
-        logger.debug(f"{addr=:x} {self.regs[addr]:x}")
+        logger.debug(f"{addr=:x} {self.bridge_regs[addr]:x}")
 
-        return bytes([self.regs[addr]])
+        return bytes([self.bridge_regs[addr]])
 
     @abc.abstractmethod
     def recv(self, data: bytes) -> None:
@@ -152,8 +152,8 @@ class SerialModel(NonFlakyI2CModel):
             self._update_irq()
             return
 
-        assert addr in self.regs
-        self.regs[addr] = data[0]
+        assert addr in self.bridge_regs
+        self.bridge_regs[addr] = data[0]
         if addr == REG_IER:
             self._update_irq()
 
