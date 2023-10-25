@@ -2,7 +2,6 @@
 # Copyright Axis Communications AB
 
 import logging
-from pathlib import Path
 from typing import Any, Final, Iterator
 
 import pytest
@@ -10,7 +9,7 @@ import pytest
 from roadtest.backend.i2c import SMBusModel
 from roadtest.core.devicetree import DtFragment, I2CAddr
 from roadtest.core.hardware import I2CHardware
-from roadtest.support.sysfs import I2CDriver, write_int
+from roadtest.support.sysfs import I2CDriver
 from roadtest.tests.iio.iio import IIODevice
 
 logger = logging.getLogger(__name__)
